@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chatbot cửa Shoji</title>
+<style>
+  :root {
+    --wood: #5a3d24;
+    --wood-dark: #3a2616;
+    --ink: #2b1d14;
+    --paper: #f6edd8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: radial-gradient(ellipse at 50% 30%, #2a2420 0%, #14110f 80%);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #e7ddcc;
+  }
+  .wrap { width: min(960px, 100%); display: flex; flex-direction: column; gap: 14px; }
+
+  /* ================= KHUNG CỬA ================= */
+  .frame {
+    --pw: 17.4;                       /* chiều rộng người (% khung) */
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border: 12px solid var(--wood-dark);
+    border-radius: 6px;
+    box-shadow: 0 20px 50px rgba(0,0,0,.6), inset 0 0 40px rgba(0,0,0,.4);
+    background: #000;
+  }
+
+  /* ---------- Căn phòng phía sau cửa ---------- */
+  .room {
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 30% 40%, #fff6dc 0%, #f4dfae 60%, #e4c98c 100%);
+  }
+  .floor {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 10%;
+    background: repeating-linear-gradient(90deg, #c9b07a 0 118px, #b99f68 118px 120px);
+    box-shadow: inset 0 6px 10px rgba(0,0,0,.18);
+  }
+  .text {
+    position: absolute; left: 0; top: 0; bottom: 10%;
+    width: 50%;
+    padding: 6% 5% 4% 6%;
+    overflow-y: auto;
+    color: var(--ink);
+    font-family: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", Georgia, serif;
+    font-size: clamp(14px, 1.7vw, 18px);
+    line-height: 1.75;
+    transition: opacity .5s;
+    scrollbar-width: thin;
+    scrollbar-color: #b99f68 transparent;
+  }
+  .text.fade { opacity: 0; }
+  .text .q { font-size: .8em; color: #8a6a3e; margin-bottom: .8em; letter-spacing: .04em; }
+  .text p { margin-bottom: .9em; }
+  .w {
+    display: inline-block;
+    opacity: 0;
+    filter: blur(5px);
+    transform: translateY(5px);
+    transition: opacity .8s ease, filter .8s ease, transform .8s ease;
+  }
+  .w.on { opacity: 1; filter: none; transform: none; }
+  .think { color: #8a6a3e; letter-spacing: .3em; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
+
+  /* ---------- Hai cánh cửa Shoji ---------- */
+  .door {
+    position: absolute; top: 0; bottom: 0; width: 50%;
+    border: 6px solid var(--wood);
+    background:
+      repeating-linear-gradient(0deg, rgba(120,90,50,.035) 0 1px, transparent 1px 3px),
+      radial-gradient(ellipse at 50% 40%, #fffaf0 0%, #f6edd8 65%, #e8dbb9 100%);
+    will-change: transform;
+  }
+  .door.left  { left: 0;   z-index: 5; }
+  .door.right { left: 50%; z-index: 6; }          /* cánh phải nằm trước, cánh trái trượt vào sau nó/vào tường */
+  .lattice {
+    position: absolute; left: 0; right: 0; top: 0; bottom: 12%;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(6, 1fr);
+  }
+  .cell { border-right: 4px solid var(--wood); border-bottom: 4px solid var(--wood); }
+  .cell:nth-child(3n) { border-right: 0; }
+  .kick {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 12%;
+    background: linear-gradient(180deg, #6b4a2b, #4a321d);
+    border-top: 5px solid var(--wood);
+  }
+  .handle {
+    position: absolute; right: 3.5%; top: 48%;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: radial-gradient(circle, #1b130d 38%, #8b6a45 42%, #d4b27a 100%);
+    box-shadow: 0 1px 3px rgba(0,0,0,.4);
+  }
+  .jamb {                                         /* trụ gỗ bên trái (cửa trượt vào đây) */
+    position: absolute; left: 0; top: 0; bottom: 0; width: 8px;
+    background: var(--wood-dark); z-index: 7;
+  }
+
+  /* ================= NGƯỜI BÊN TRONG ================= */
+  .person {
+    position: absolute;
+    bottom: 6%;
+    left: 80%;
+    width: calc(var(--pw) * 1%);
+    aspect-ratio: 1 / 2;
+    transform: translateX(-50%);
+    z-index: 8;
+    pointer-events: none;
+    opacity: 0;
+    filter: blur(3.5px);
+    transition: left 0s, opacity .5s, filter .4s;
+  }
+  .person.shadow { opacity: .6; filter: blur(3.5px); }   /* bóng mờ sau lớp giấy */
+  .person.clear  { opacity: 1;  filter: none; }          /* rõ nét khi cửa đã mở */
+  .person svg { width: 100%; height: 100%; overflow: visible; display: block; }
+  .person svg * { fill: #140d08; }
+  .person svg .obi { fill: #2f2016; }
+  .person svg .armline { fill: none; stroke: #140d08; stroke-width: 9; stroke-linecap: round; }
+
+  .flip { transform-origin: 50px 0; }
+  .person.face-right .flip { transform: scaleX(-1); }    /* hình gốc quay mặt sang trái */
+
+  .arm { transform-origin: 44px 58px; transform: rotate(-90deg); transition: transform .6s ease; }
+  .person.reach .arm { transform: rotate(0deg); }        /* giơ tay nắm tay cầm */
+
+  .person.walking .bodyg { animation: bob .22s infinite alternate ease-in-out; }
+  .person.walking .foot-a { animation: step .45s infinite alternate ease-in-out; }
+  .person.walking .foot-b { animation: step .45s infinite alternate-reverse ease-in-out; }
+  .person.walking:not(.reach) .arm { animation: armswing .45s infinite alternate ease-in-out; }
+  @keyframes bob { from { transform: translateY(0); } to { transform: translateY(-3px); } }
+  @keyframes step { from { transform: translateX(-8px); } to { transform: translateX(8px); } }
+  @keyframes armswing { from { transform: rotate(-102deg); } to { transform: rotate(-78deg); } }
+
+  /* ================= THANH NHẬP ================= */
+  .bar {
+    display: flex; gap: 10px;
+    padding: 10px;
+    background: linear-gradient(180deg, #4a321d, #3a2616);
+    border-radius: 12px;
+    box-shadow: 0 8px 20px rgba(0,0,0,.4);
+  }
+  .bar input {
+    flex: 1; padding: 13px 16px; border: 0; border-radius: 8px; outline: none;
+    background: var(--paper); color: var(--ink); font-size: 15px;
+  }
+  .bar input:focus { box-shadow: 0 0 0 2px #d4b27a; }
+  .bar button {
+    padding: 0 24px; border: 0; border-radius: 8px; cursor: pointer;
+    background: #b8432f; color: #fff4e6; font-weight: 700; font-size: 15px;
+    transition: filter .2s;
+  }
+  .bar button:hover:not(:disabled) { filter: brightness(1.12); }
+  .bar button:disabled, .bar input:disabled { opacity: .55; cursor: not-allowed; }
+
+  @media (max-width: 700px) {
+    .frame { aspect-ratio: 3 / 4; --pw: 26; }
+    .text { font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+<main class="wrap">
+
+  <div class="frame" id="frame">
+    <!-- Phòng phía sau -->
+    <div class="room">
+      <div class="floor"></div>
+      <div class="text" id="text"></div>
+    </div>
+
+    <!-- Hai cánh cửa -->
+    <div class="door left" id="doorL">
+      <div class="lattice"></div><div class="kick"></div><div class="handle"></div>
+    </div>
+    <div class="door right" id="doorR">
+      <div class="lattice"></div><div class="kick"></div>
+    </div>
+    <div class="jamb"></div>
+
+    <!-- Người trong phòng (hiện như cái bóng sau giấy) -->
+    <div class="person face-left" id="person">
+      <svg viewBox="0 0 100 200" aria-hidden="true">
+        <g class="flip">
+          <g class="foot foot-a"><ellipse cx="42" cy="188" rx="10" ry="5"/></g>
+          <g class="foot foot-b"><ellipse cx="58" cy="188" rx="10" ry="5"/></g>
+          <g class="bodyg">
+            <path d="M34 50 Q50 42 66 50 L76 184 Q50 192 24 184 Z"/>
+            <rect class="obi" x="33" y="88" width="34" height="20" rx="3"/>
+            <circle cx="50" cy="28" r="15"/>
+            <circle cx="60" cy="14" r="8"/>
+            <g class="arm"><path class="armline" d="M44 58 L10 66"/></g>
+          </g>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <form class="bar" id="form">
+    <input id="input" type="text" placeholder="Nhập câu hỏi rồi nhấn Enter..." autocomplete="off" required>
+    <button id="send" type="submit">Gửi</button>
+  </form>
+
+</main>
+
+<script>
+(function () {
+  const frame   = document.getElementById('frame');
+  const doorL   = document.getElementById('doorL');
+  const person  = document.getElementById('person');
+  const textBox = document.getElementById('text');
+  const form    = document.getElementById('form');
+  const input   = document.getElementById('input');
+  const send    = document.getElementById('send');
+
+  // Tạo ô lưới gỗ (kumiko) cho 2 cánh cửa: 3 cột x 6 hàng
+  document.querySelectorAll('.lattice').forEach(l => {
+    for (let i = 0; i < 18; i++) { const c = document.createElement('div'); c.className = 'cell'; l.appendChild(c); }
+  });
+
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const EASE = 'cubic-bezier(.45,.05,.55,.95)';
+  let isOpen = false, busy = false;
+
+  const pw  = () => parseFloat(getComputedStyle(frame).getPropertyValue('--pw')) || 17.4;
+  const tipOf = () => pw() * 0.40;   // khoảng cách từ giữa người tới đầu bàn tay (% bề rộng khung)
+
+  function jump(x) {                 // đặt vị trí ngay, không animation
+    person.style.transition = 'none';
+    person.style.left = x + '%';
+    void person.offsetWidth;
+    person.style.transition = '';
+  }
+  function glide(x, ms, ease) {      // đi tới x trong ms mili-giây
+    person.style.transition = `left ${ms}ms ${ease || 'linear'}, opacity .5s, filter .4s`;
+    person.style.left = x + '%';
+  }
+
+  /* ========= Người bên trong mở cánh cửa TRÁI ========= */
+  async function openDoor() {
+    const reachX = 48 + tipOf();     // đứng sau cánh phải, tay chạm tay cầm cánh trái (tay cầm ở ~48%)
+    person.className = 'person face-left';
+    jump(reachX + 24);
+    await wait(30);
+    person.classList.add('shadow', 'walking');   // hiện như bóng mờ sau giấy, đi tới
+    glide(reachX, 2000);
+    await wait(2000);
+
+    person.classList.remove('walking');
+    person.classList.add('reach');               // giơ tay nắm tay cầm
+    await wait(800);
+
+    const T = 2600;                              // kéo cửa sang trái, người đi cùng
+    doorL.style.transition = `transform ${T}ms ${EASE}`;
+    glide(reachX - 50, T, EASE);
+    person.classList.add('walking');
+    setTimeout(() => { person.classList.remove('shadow'); person.classList.add('clear'); }, 500);
+    doorL.style.transform = 'translateX(-100%)';
+    await wait(T);
+
+    person.classList.remove('walking', 'reach');
+    await wait(400);
+    person.classList.add('walking');             // người rời đi về bên trái
+    glide(-18, 1400);
+    await wait(900);
+    person.classList.remove('clear');
+    await wait(500);
+    person.className = 'person face-left';
+    isOpen = true;
+  }
+
+  /* ========= Đóng cửa lại (khi hỏi câu mới) ========= */
+  async function closeDoor() {
+    textBox.classList.add('fade');
+    await wait(600);
+    textBox.innerHTML = '';
+    textBox.classList.remove('fade');
+
+    const tip = tipOf();
+    person.className = 'person face-right reach shadow';
+    jump(-2 - tip);
+    await wait(30);
+    person.classList.add('walking');
+    const T = 2400;
+    doorL.style.transition = `transform ${T}ms ${EASE}`;
+    glide(48 - tip, T, EASE);
+    doorL.style.transform = 'translateX(0)';
+    await wait(T);
+
+    person.classList.remove('walking', 'reach');
+    await wait(500);
+    person.classList.remove('shadow');
+    await wait(600);
+    person.className = 'person face-left';
+    isOpen = false;
+  }
+
+  /* ========= Chữ hiện dần ========= */
+  async function reveal(question, answer) {
+    textBox.innerHTML = '';
+    const q = document.createElement('div');
+    q.className = 'q';
+    q.textContent = 'Hỏi: ' + question;
+    textBox.appendChild(q);
+
+    const spans = [];
+    String(answer).split(/\n+/).forEach(par => {
+      const p = document.createElement('p');
+      par.split(/\s+/).filter(Boolean).forEach(word => {
+        const s = document.createElement('span');
+        s.className = 'w';
+        s.textContent = word;
+        p.append(s, ' ');
+        spans.push(s);
+      });
+      textBox.appendChild(p);
+    });
+
+    for (const s of spans) {
+      await wait(55);
+      s.classList.add('on');
+      textBox.scrollTop = textBox.scrollHeight;
+    }
+    await wait(800);
+  }
+
+  /* ====== THAY HÀM NÀY bằng lời gọi API thật của bạn ======
+     Trả về chuỗi văn bản (xuống dòng = đoạn mới). */
+  async function getAnswer(question) {
+    await wait(800);
+    return 'Đây là câu trả lời mẫu cho câu hỏi của bạn.\n' +
+           'Hãy thay hàm getAnswer() bằng lời gọi tới API thật (Claude, OpenAI, hoặc backend riêng của bạn). ' +
+           'Chữ sẽ hiện dần lên từng từ sau khi người trong phòng mở cửa.';
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = input.value.trim();
+    if (!q || busy) return;
+    busy = true;
+    input.value = '';
+    input.disabled = send.disabled = true;
+
+    const answerPromise = getAnswer(q).catch(() => 'Có lỗi xảy ra, bạn thử lại nhé.');
+
+    if (isOpen) await closeDoor();
+    await openDoor();
+
+    textBox.innerHTML = '<div class="think">· · ·</div>';
+    const answer = await answerPromise;
+    await reveal(q, answer);
+
+    busy = false;
+    input.disabled = send.disabled = false;
+    input.focus();
+  });
+})();
+</script>
+</body>
+</html>
