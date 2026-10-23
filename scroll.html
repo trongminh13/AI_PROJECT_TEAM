@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cuộn giấy xưa</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px 12px;
+    background:
+      radial-gradient(ellipse at 50% 35%, rgba(255,190,110,.18), transparent 60%),
+      linear-gradient(180deg, #2b1e16, #160e09);
+    font-family: "Palatino Linotype", "Book Antiqua", Georgia, "Noto Serif", serif;
+    color: #e9d8b4;
+  }
+
+  /* ================= THÔNG SỐ ================= */
+  .stage {
+    --h: clamp(260px, 42vh, 360px);              /* chiều cao cuộn giấy */
+    --open: min(700px, calc(100vw - 150px));     /* chiều rộng tờ giấy khi mở hết */
+    --rod: 22px;                                 /* bề ngang trục gỗ */
+    --roll: 100px;                               /* bề ngang cuộn khi đang cuộn kín */
+    --dur: 1.7s;                                 /* thời gian mở/đóng */
+    --ease: cubic-bezier(.55, .1, .25, 1);
+    --silk: #7b2d26;
+    display: flex; flex-direction: column; align-items: center; gap: 56px;
+  }
+
+  /* Vùng chứa: mép PHẢI cố định, cuộn giấy mở dần sang TRÁI */
+  .track {
+    width: calc(var(--open) + var(--rod) * 2);
+    display: flex;
+    justify-content: flex-end;
+  }
+  .scroll {
+    display: flex;
+    align-items: center;
+    outline: none;
+    cursor: pointer;
+    filter: drop-shadow(0 18px 16px rgba(0,0,0,.5));
+  }
+
+  /* ================= TRỤC GỖ ================= */
+  .rod {
+    position: relative;
+    flex: none;
+    width: var(--rod);
+    height: var(--h);
+    background: linear-gradient(90deg, #35200f, #7a4b27 30%, #b27240 50%, #7a4b27 70%, #35200f);
+  }
+  .rod::before, .rod::after {                    /* đầu trục mạ vàng */
+    content: "";
+    position: absolute;
+    left: 50%;
+    width: calc(var(--rod) + 10px);
+    height: 16px;
+    transform: translateX(-50%);
+    border-radius: 5px;
+    background: linear-gradient(90deg, #8c6a1f, #e6c46a 45%, #f4dc92 55%, #8c6a1f);
+    box-shadow: 0 1px 3px rgba(0,0,0,.5);
+  }
+  .rod::before { top: -14px; }
+  .rod::after  { bottom: -14px; }
+
+  /* ================= TỜ GIẤY ================= */
+  .paper {
+    position: relative;
+    flex: none;
+    width: 0;                                    /* đóng: chưa lộ giấy */
+    height: var(--h);
+    overflow: hidden;
+    display: flex;
+    justify-content: flex-end;                   /* nội dung neo mép phải => lộ dần từ phải sang trái */
+    transition: width var(--dur) var(--ease);
+    background-color: #ecdcb0;
+    background-image:
+      url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .42 0 0 0 0 .3 0 0 0 0 .15 0 0 0 .22 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+      radial-gradient(ellipse at 40% 30%, rgba(255,250,230,.6), transparent 60%),
+      radial-gradient(ellipse at 80% 90%, rgba(160,110,50,.28), transparent 55%);
+    box-shadow:
+      inset 34px 0 30px -22px rgba(60,35,10,.55),
+      inset -34px 0 30px -22px rgba(60,35,10,.4),
+      inset 0 0 50px rgba(150,100,40,.25);
+  }
+  .paper::before, .paper::after {                /* viền lụa trên/dưới */
+    content: "";
+    position: absolute; left: 0; right: 0; height: 14px; z-index: 2;
+    background:
+      repeating-linear-gradient(45deg, rgba(201,162,74,.35) 0 2px, transparent 2px 8px),
+      linear-gradient(180deg, #8d332b, var(--silk));
+  }
+  .paper::before { top: 0;    box-shadow: 0 2px 3px rgba(0,0,0,.25); }
+  .paper::after  { bottom: 0; box-shadow: 0 -2px 3px rgba(0,0,0,.25); }
+
+  .content {
+    position: relative;
+    flex: none;
+    width: var(--open);
+    height: 100%;
+    padding: 36px 34px;
+    display: flex;
+    flex-direction: row-reverse;                 /* cột đầu tiên nằm bên PHẢI, đọc sang trái */
+    gap: 30px;
+    color: #3a2410;
+  }
+  .title {
+    writing-mode: vertical-rl;
+    font-size: clamp(28px, 4.6vw, 44px);
+    font-weight: 700;
+    letter-spacing: .22em;
+    color: #2a1608;
+    padding-left: 22px;
+    border-left: 2px solid rgba(90,50,20,.35);
+    white-space: nowrap;
+  }
+  .col { flex: 1; font-size: 15px; line-height: 1.85; text-align: justify; hyphens: auto; }
+  .col strong { color: #7b2d26; }
+  .seal {
+    position: absolute; left: 30px; bottom: 28px;
+    width: 52px; height: 52px;
+    display: grid; place-items: center;
+    background: #b3261e; color: #f8e3d0;
+    font-size: 30px; line-height: 1;
+    border-radius: 4px;
+    transform: rotate(-5deg);
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,.25);
+    opacity: .92;
+  }
+
+  /* ================= CUỘN Ở BÊN PHẢI ================= */
+  .bundle {
+    position: relative;
+    flex: none;
+    width: var(--roll);                          /* đóng: cuộn dày */
+    height: var(--h);
+    transition: width var(--dur) var(--ease);
+  }
+  .bundle .rod { position: absolute; left: 50%; top: 0; transform: translateX(-50%); }
+
+  .roll-paper {                                  /* phần giấy đang cuộn tròn */
+    position: absolute; inset: 0;
+    border-radius: 3px;
+    background:
+      linear-gradient(90deg, rgba(0,0,0,.5), rgba(0,0,0,0) 22%, rgba(255,255,255,.28) 48%, rgba(0,0,0,0) 74%, rgba(0,0,0,.55)),
+      linear-gradient(180deg, var(--silk) 0 14px, transparent 14px calc(100% - 14px), var(--silk) calc(100% - 14px)),
+      repeating-linear-gradient(90deg, transparent 0 5px, rgba(90,60,25,.2) 5px 6px),
+      #e9d6a6;
+    transition: opacity .4s ease 0s;
+  }
+
+  .tie {                                         /* dây buộc đỏ */
+    position: absolute; left: -3px; right: -3px; top: 44%;
+    height: 16px; z-index: 3;
+    background: linear-gradient(180deg, #c22d24, #7d1812);
+    box-shadow: 0 2px 4px rgba(0,0,0,.4);
+    transition: transform .5s ease 1.2s, opacity .5s ease 1.2s;
+  }
+  .tie::after {                                  /* tua dây rủ xuống */
+    content: "";
+    position: absolute; right: 12px; top: 100%;
+    width: 9px; height: 54px;
+    background: linear-gradient(90deg, #8e1d16, #d03a2f, #8e1d16);
+    border-radius: 0 0 5px 5px;
+    box-shadow: -14px 6px 0 -1px #a52219;
+  }
+
+  /* ================= HOVER / TAP: MỞ TỪ PHẢI SANG TRÁI ================= */
+  .scroll:is(:hover, :focus) .paper  { width: var(--open); }
+  .scroll:is(:hover, :focus) .bundle { width: var(--rod); }
+  .scroll:is(:hover, :focus) .roll-paper {
+    opacity: 0;
+    transition: opacity .5s ease 1.15s;          /* lớp giấy cuộn mờ đi khi đã mở gần hết */
+  }
+  .scroll:is(:hover, :focus) .tie {
+    transform: translateY(30px) rotate(7deg);
+    opacity: 0;
+    transition: transform .6s ease 0s, opacity .5s ease 0s;
+  }
+
+  .hint {
+    font-size: 14px; letter-spacing: .18em; color: #b79d72;
+    transition: opacity .5s;
+  }
+  .stage:has(.scroll:is(:hover, :focus)) .hint { opacity: 0; }
+
+  /* ================= MÀN HÌNH NHỎ ================= */
+  @media (max-width: 560px) {
+    .stage { --roll: 76px; }
+    .content { padding: 30px 18px; gap: 18px; }
+    .col { font-size: 13px; line-height: 1.7; }
+    .seal { width: 42px; height: 42px; font-size: 24px; left: 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .stage { --dur: .01s; }
+    .tie, .roll-paper { transition-duration: .01s !important; transition-delay: 0s !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="track">
+    <div class="scroll" tabindex="0" aria-label="Cuộn giấy, rê chuột hoặc chạm để mở">
+
+      <!-- trục trái (đầu cuộn, di chuyển sang trái khi mở) -->
+      <div class="rod"></div>
+
+      <!-- tờ giấy -->
+      <div class="paper">
+        <div class="content">
+          <h1 class="title">CUỘN THƯ XƯA</h1>
+          <p class="col">Ngày xưa, người ta ghi lời vào giấy rồi cuộn lại, buộc dây đỏ, cất vào hộp gỗ. Mỗi lần mở ra là một lần được đọc từ đầu.</p>
+          <p class="col">Cuộn giấy này <strong>mở từ phải sang trái</strong>. Bạn có thể thay chữ ở đây bằng nội dung riêng: lời chào, thực đơn, bảng giá hay giới thiệu bản thân.</p>
+          <p class="col">Khi rời chuột khỏi cuộn giấy, nó sẽ khép lại nhẹ nhàng và được buộc dây như cũ.</p>
+          <div class="seal">春</div>
+        </div>
+      </div>
+
+      <!-- cuộn bên phải (nhỏ dần khi giấy được kéo ra) -->
+      <div class="bundle">
+        <div class="rod"></div>
+        <div class="roll-paper"></div>
+        <div class="tie"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <p class="hint">RÊ CHUỘT VÀO CUỘN GIẤY ĐỂ MỞ</p>
+</div>
+
+</body>
+</html>
