@@ -11,6 +11,10 @@ import os
 import base64
 import html
 import json
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -529,7 +533,7 @@ with st.sidebar:
             🏡 HouseAssist
         </div>
         <div style="font-size: 0.8rem; color: #38BDF8; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 1rem; font-weight: 600;">
-            King County Real Estate AI
+            Vietnam Real Estate AI
         </div>
         """,
         unsafe_allow_html=True,
@@ -575,16 +579,16 @@ with st.sidebar:
         sb_c1, sb_c2 = st.columns(2)
         with sb_c1:
             st.metric("Giao dịch", f"{len(df_side):,}")
-            st.metric("Đơn giá TB", f"${df_side['price_per_sqft'].mean():.0f}/sqft")
+            st.metric("Đơn giá TB", f"{df_side['price_per_m2'].mean():.1f} tr/m²")
         with sb_c2:
-            st.metric("Giá trung vị", f"${df_side['price'].median():,.0f}")
-            st.metric("Diện tích TB", f"{df_side['sqft_living'].mean():.0f} sqft")
+            st.metric("Giá trung vị", f"{df_side['Price_Billion_VND'].median():.2f} tỷ")
+            st.metric("Diện tích TB", f"{df_side['Land_Area'].mean():.0f} m²")
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.caption("💎 **Top 3 khu vực đắt nhất:**")
-        top3 = df_side.groupby("city")["price"].median().sort_values(ascending=False).head(3)
-        for city_name, val in top3.items():
-            st.markdown(f"- **{city_name}:** `${val:,.0f}`")
+        top3 = df_side.groupby("Province")["Price_Billion_VND"].median().sort_values(ascending=False).head(3)
+        for prov_name, val in top3.items():
+            st.markdown(f"- **{prov_name}:** `{val:.2f} tỷ VNĐ`")
     except Exception as e:
         st.warning(f"Chưa nạp được dữ liệu: {e}")
 
@@ -610,7 +614,7 @@ with main_tab:
     # Header thơ mộng
     st.markdown('<div class="hero-title">HouseAssist • Trà Thất AI</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="hero-subtitle">Hệ thống Trí tuệ Nhân tạo Phân tích, Định giá & Khám phá Bất động sản King County qua Không gian Thiền Định Shoji.</div>',
+        '<div class="hero-subtitle">Hệ thống Trí tuệ Nhân tạo Phân tích, Định giá & Khám phá Bất động sản Việt Nam qua Không gian Thiền Định Shoji.</div>',
         unsafe_allow_html=True,
     )
 
@@ -694,9 +698,9 @@ with main_tab:
     st.markdown("### 🧭 Khám Phá Thị Trường Bất Động Sản (Scroll Down Discovery)")
     st.caption("Cuộn xuống dưới để khám phá 3 phân khúc K-Means, bộ lọc giá đô thị và các đặc trưng chi phối định giá.")
 
-    # 1. BA PHÂN KHÚC K-MEANS CHUYÊN SÂU
-    st.markdown("#### 🏛️ 3 Phân Khúc Thị Trường Tự Nhiên (K-Means Clustering)")
-    seg_cols = st.columns(3)
+    # 1. BỐN PHÂN KHÚC K-MEANS CHUYÊN SÂU
+    st.markdown("#### 🏛️ 4 Phân Khúc Thị Trường Tự Nhiên (K-Means Clustering)")
+    seg_cols = st.columns(4)
 
     with seg_cols[0]:
         st.markdown(
@@ -704,11 +708,11 @@ with main_tab:
             <div class="feature-card">
                 <div class="card-tag">Phân khúc 01</div>
                 <div class="card-val" style="color: #38BDF8;">Bình Dân</div>
-                <div style="font-size: 1.25rem; font-weight: 600; color: #FFFFFF; margin-bottom: 0.5rem;">~$330,000 USD</div>
+                <div style="font-size: 1.25rem; font-weight: 600; color: #FFFFFF; margin-bottom: 0.5rem;">&lt; 2.0 Tỷ VNĐ</div>
                 <div class="card-desc">
-                    • <b>Diện tích TB:</b> ~1,430 sqft (133 m²)<br>
-                    • <b>Quy mô:</b> 3 phòng ngủ, 1.5 phòng tắm<br>
-                    • <b>Đặc điểm:</b> Nhà ở vừa túi tiền, phù hợp gia đình trẻ, tập trung tại Kent, Auburn, Federal Way.
+                    • <b>Diện tích TB:</b> ~60–80 m²<br>
+                    • <b>Quy mô:</b> 2–3 phòng ngủ, 1–2 tầng<br>
+                    • <b>Đặc điểm:</b> Nhà ở vừa túi tiền, nhà ở xã hội hoặc khu vực ngoại thành, tỉnh lân cận.
                 </div>
             </div>
             """,
@@ -721,11 +725,11 @@ with main_tab:
             <div class="feature-card">
                 <div class="card-tag">Phân khúc 02</div>
                 <div class="card-val" style="color: #60A5FA;">Trung Cấp</div>
-                <div style="font-size: 1.25rem; font-weight: 600; color: #FFFFFF; margin-bottom: 0.5rem;">~$585,000 USD</div>
+                <div style="font-size: 1.25rem; font-weight: 600; color: #FFFFFF; margin-bottom: 0.5rem;">2.0 – 5.0 Tỷ VNĐ</div>
                 <div class="card-desc">
-                    • <b>Diện tích TB:</b> ~2,380 sqft (221 m²)<br>
-                    • <b>Quy mô:</b> 3.6 phòng ngủ, 2.4 phòng tắm<br>
-                    • <b>Đặc điểm:</b> Phân khúc phổ biến nhất (chiếm 41%), nhà ngoại ô hiện đại ở Renton, Kirkland, Bothell.
+                    • <b>Diện tích TB:</b> ~70–120 m²<br>
+                    • <b>Quy mô:</b> 3–4 phòng ngủ, 2–3 tầng<br>
+                    • <b>Đặc điểm:</b> Phân khúc phổ biến nhất (chiếm 45%), nhà phố gia đình tại đô thị loại 2 hoặc ven trung tâm.
                 </div>
             </div>
             """,
@@ -737,12 +741,29 @@ with main_tab:
             """
             <div class="feature-card">
                 <div class="card-tag">Phân khúc 03</div>
-                <div class="card-val" style="color: #C084FC;">Cao Cấp</div>
-                <div style="font-size: 1.25rem; font-weight: 600; color: #FFFFFF; margin-bottom: 0.5rem;">~$1,164,000 USD</div>
+                <div class="card-val" style="color: #A78BFA;">Cao Cấp</div>
+                <div style="font-size: 1.25rem; font-weight: 600; color: #FFFFFF; margin-bottom: 0.5rem;">5.0 – 15.0 Tỷ VNĐ</div>
                 <div class="card-desc">
-                    • <b>Diện tích TB:</b> ~3,780 sqft (351 m²)<br>
-                    • <b>Quy mô:</b> 4-5 phòng ngủ, 3.5 phòng tắm<br>
-                    • <b>Đặc điểm:</b> Biệt thự ven hồ (waterfront), view vịnh tuyệt đẹp tại Seattle, Bellevue, Medina, Mercer Island.
+                    • <b>Diện tích TB:</b> ~90–180 m²<br>
+                    • <b>Quy mô:</b> 4–5 phòng ngủ, 3–4 tầng<br>
+                    • <b>Đặc điểm:</b> Nhà phố thương mại, chung cư hạng A tại các quận nội thành Hà Nội, TP.HCM, Đà Nẵng.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with seg_cols[3]:
+        st.markdown(
+            """
+            <div class="feature-card">
+                <div class="card-tag">Phân khúc 04</div>
+                <div class="card-val" style="color: #F472B6;">Hạng Sang</div>
+                <div style="font-size: 1.25rem; font-weight: 600; color: #FFFFFF; margin-bottom: 0.5rem;">&gt; 15.0 Tỷ VNĐ</div>
+                <div class="card-desc">
+                    • <b>Diện tích TB:</b> ~150–400 m²<br>
+                    • <b>Quy mô:</b> Biệt thự đơn lập/song lập<br>
+                    • <b>Đặc điểm:</b> Biệt thự sang trọng, vị trí vàng trung tâm hoặc đại đô thị sinh thái (Vinhomes, Ciputra, Sun Group).
                 </div>
             </div>
             """,
@@ -754,23 +775,30 @@ with main_tab:
     # 2. LĂNG KÍNH ĐÔ THỊ (URBAN LENS)
     st.markdown("#### 🏙️ Lăng Kính Đô Thị (Urban Market Lens)")
     df_clean = load_clean_data()
-    all_cities = sorted(df_clean["city"].unique().tolist())
+    all_provinces = sorted(df_clean["Province"].unique().tolist())
 
     c_select_col, c_stat_col = st.columns([1, 2])
     with c_select_col:
-        selected_city = st.selectbox("Chọn thành phố cần soi kính hiển vi:", all_cities, index=all_cities.index("Seattle") if "Seattle" in all_cities else 0)
-        c_stats = get_market_statistics(selected_city)
+        selected_prov = st.selectbox(
+            "Chọn tỉnh/thành phố cần soi kính hiển vi:",
+            all_provinces,
+            index=all_provinces.index("Hà Nội") if "Hà Nội" in all_provinces else 0,
+        )
+        c_stats = get_market_statistics(selected_prov)
 
     with c_stat_col:
         if c_stats.get("status") == "success":
             m_cols = st.columns(3)
             with m_cols[0]:
-                st.metric("Tổng giao dịch", f"{c_stats['total_transactions']:,} căn")
+                st.metric("Tổng giao dịch", f"{c_stats.get('total_listings', 0):,} căn")
             with m_cols[1]:
-                st.metric("Giá trung vị", c_stats["median_price_formatted"])
+                st.metric("Giá trung vị", c_stats.get("median_price_formatted", "N/A"))
             with m_cols[2]:
-                st.metric("Đơn giá trung bình", c_stats["avg_price_per_sqft"])
-            st.caption(f"Biên độ dao động giá tại **{selected_city}**: {c_stats['min_price_formatted']} — {c_stats['max_price_formatted']}. Diện tích trung bình: {c_stats['avg_sqft_living']} sqft.")
+                st.metric("Đơn giá trung bình", c_stats.get("avg_price_per_m2", "N/A"))
+            st.caption(
+                f"Biên độ dao động giá tại **{selected_prov}**: {c_stats.get('min_price_formatted', 'N/A')} — {c_stats.get('max_price_formatted', 'N/A')}. "
+                f"Diện tích đất trung bình: {c_stats.get('avg_land_area_m2', 0)} m²."
+            )
 
     # 3. YẾU TỐ ĐẨY GIÁ NHÀ (FEATURE IMPORTANCE)
     st.markdown("<br>", unsafe_allow_html=True)
@@ -786,7 +814,7 @@ with main_tab:
 # ==============================================================================
 with explore_tab:
     st.markdown('<div class="hero-title" style="font-size: 2.2rem;">Toàn Cảnh Thị Trường Bất Động Sản</div>', unsafe_allow_html=True)
-    st.markdown('<div class="hero-subtitle">Bản đồ số liệu trực quan trích xuất từ 4,548 giao dịch sạch của King County, Washington.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero-subtitle">Bản đồ số liệu trực quan trích xuất từ 9,714 giao dịch sạch trên toàn quốc (Việt Nam).</div>', unsafe_allow_html=True)
 
     df_exp = load_clean_data()
 
@@ -795,11 +823,11 @@ with explore_tab:
     with kpi1:
         st.metric("Tổng Giao Dịch", f"{len(df_exp):,} căn")
     with kpi2:
-        st.metric("Giá Trung Vị", f"${df_exp['price'].median():,.0f} USD")
+        st.metric("Giá Trung Vị", f"{df_exp['Price_Billion_VND'].median():.2f} tỷ VNĐ")
     with kpi3:
-        st.metric("Đơn Giá TB", f"${df_exp['price_per_sqft'].mean():.0f}/sqft")
+        st.metric("Đơn Giá TB", f"{df_exp['price_per_m2'].mean():.1f} tr/m²")
     with kpi4:
-        st.metric("Diện Tích TB", f"{df_exp['sqft_living'].mean():.0f} sqft")
+        st.metric("Diện Tích TB", f"{df_exp['Land_Area'].mean():.0f} m²")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -807,13 +835,109 @@ with explore_tab:
     top_c1, top_c2 = st.columns(2)
     with top_c1:
         st.markdown("##### 💎 Top 5 Khu Vực Đắt Đỏ Nhất (Theo Giá Trung Vị)")
-        top_exp = df_exp.groupby("city")["price"].median().sort_values(ascending=False).head(5)
-        st.dataframe(pd.DataFrame({"Thành phố": top_exp.index, "Giá trung vị (USD)": top_exp.map("${:,.0f}".format)}), width="stretch")
+        top_exp = df_exp.groupby("Province")["Price_Billion_VND"].median().sort_values(ascending=False).head(5)
+        st.dataframe(pd.DataFrame({"Tỉnh/Thành phố": top_exp.index, "Giá trung vị": top_exp.map("{:.2f} tỷ VNĐ".format)}), width="stretch")
 
     with top_c2:
         st.markdown("##### 🏷️ Top 5 Khu Vực Giá Tốt Dễ Tiếp Cận Nhất")
-        top_aff = df_exp.groupby("city")["price"].median().sort_values(ascending=True).head(5)
-        st.dataframe(pd.DataFrame({"Thành phố": top_aff.index, "Giá trung vị (USD)": top_aff.map("${:,.0f}".format)}), width="stretch")
+        top_aff = df_exp.groupby("Province")["Price_Billion_VND"].median().sort_values(ascending=True).head(5)
+        st.dataframe(pd.DataFrame({"Tỉnh/Thành phố": top_aff.index, "Giá trung vị": top_aff.map("{:.2f} tỷ VNĐ".format)}), width="stretch")
+
+    # --------------------------------------------------------------------------
+    # KHÁM PHÁ DỮ LIỆU CHUYÊN SÂU (EDA GALLERY - 9 BIỂU ĐỒ)
+    # --------------------------------------------------------------------------
+    st.markdown("<br><hr style='border-color: rgba(56, 189, 248, 0.2);'><br>", unsafe_allow_html=True)
+    st.markdown("### 📈 Phòng Trưng Bày Trực Quan Hóa Dữ Liệu (EDA Gallery - 9 Biểu Đồ Chuyên Sâu)")
+    st.caption("Các biểu đồ thống kê cốt lõi trích xuất từ quy trình làm sạch và phân tích khám phá dữ liệu bất động sản Việt Nam.")
+
+    eda_dir = os.path.join(os.path.dirname(__file__), "vietnam_housing_data", "eda_charts")
+
+    if os.path.exists(eda_dir):
+        eda_tab1, eda_tab2, eda_tab3, eda_tab_zoom = st.tabs(
+            [
+                "🧹 1. Làm Sạch & Phân Phối Giá",
+                "🏡 2. Diện Tích & Loại Hình BĐS",
+                "🗺️ 3. Địa Lý & Ma Trận Tương Quan",
+                "🔍 4. Kính Lúp Soi Biểu Đồ Bản To",
+            ]
+        )
+
+        with eda_tab1:
+            e1_col1, e1_col2, e1_col3 = st.columns(3)
+            with e1_col1:
+                img1_path = os.path.join(eda_dir, "01_missing_values.png")
+                if os.path.exists(img1_path):
+                    st.image(img1_path, caption="Biểu đồ 01: Ô Khuyết Trước & Sau Làm Sạch", use_container_width=True)
+                    st.caption("🔍 **Nhận xét**: Loại bỏ triệt để 100% các ô thiếu, bảo toàn 9,714 dòng sạch.")
+            with e1_col2:
+                img2_path = os.path.join(eda_dir, "02_price_histograms.png")
+                if os.path.exists(img2_path):
+                    st.image(img2_path, caption="Biểu đồ 02: Phân Phối Giá & Log Transform", use_container_width=True)
+                    st.caption("🔍 **Nhận xét**: Phân phối giá lệch phải mạnh; log1p đưa về chuẩn Gaussian cân đối.")
+            with e1_col3:
+                img3_path = os.path.join(eda_dir, "03_correlation_with_log_price.png")
+                if os.path.exists(img3_path):
+                    st.image(img3_path, caption="Biểu đồ 03: Tương Quan Với Log Giá", use_container_width=True)
+                    st.caption("🔍 **Nhận xét**: Diện tích đất và diện tích sàn là hai biến tương quan dương mạnh nhất.")
+
+        with eda_tab2:
+            e2_col1, e2_col2, e2_col3 = st.columns(3)
+            with e2_col1:
+                img4_path = os.path.join(eda_dir, "04_land_area_vs_price.png")
+                if os.path.exists(img4_path):
+                    st.image(img4_path, caption="Biểu đồ 04: Diện Tích Đất vs Giá Bán", use_container_width=True)
+                    st.caption("🔍 **Nhận xét**: Xu hướng tăng giá tuyến tính theo diện tích; loại trừ outlier >500 tỷ.")
+            with e2_col2:
+                img5_path = os.path.join(eda_dir, "05_price_by_property_type.png")
+                if os.path.exists(img5_path):
+                    st.image(img5_path, caption="Biểu đồ 05: Phân Phối Giá Theo Loại Hình", use_container_width=True)
+                    st.caption("🔍 **Nhận xét**: Biệt thự dẫn đầu biên độ giá; nhà phố chiếm thanh khoản áp đảo.")
+            with e2_col3:
+                img6_path = os.path.join(eda_dir, "06_price_by_location_type.png")
+                if os.path.exists(img6_path):
+                    st.image(img6_path, caption="Biểu đồ 06: Phân Phối Giá Theo Vị Trí", use_container_width=True)
+                    st.caption("🔍 **Nhận xét**: BĐS vùng trung tâm có đơn giá cao và độ phân hóa vượt trội.")
+
+        with eda_tab3:
+            e3_col1, e3_col2, e3_col3 = st.columns(3)
+            with e3_col1:
+                img7_path = os.path.join(eda_dir, "07_distance_vs_price_per_m2.png")
+                if os.path.exists(img7_path):
+                    st.image(img7_path, caption="Biểu đồ 07: Cự Ly Trung Tâm vs Đơn Giá/m²", use_container_width=True)
+                    st.caption("🔍 **Nhận xét**: Định luật khoảng cách: đơn giá giảm theo hàm số mũ khi xa trung tâm.")
+            with e3_col2:
+                img8_path = os.path.join(eda_dir, "08_median_price_by_province.png")
+                if os.path.exists(img8_path):
+                    st.image(img8_path, caption="Biểu đồ 08: Giá Trung Vị Theo Tỉnh Thành", use_container_width=True)
+                    st.caption("🔍 **Nhận xét**: TP.HCM, Hà Nội và Đà Nẵng định hình trục tam giác giá trị cao nhất.")
+            with e3_col3:
+                img9_path = os.path.join(eda_dir, "09_correlation_heatmap.png")
+                if os.path.exists(img9_path):
+                    st.image(img9_path, caption="Biểu đồ 09: Ma Trận Nhiệt Tương Quan Đa Biến", use_container_width=True)
+                    st.caption("🔍 **Nhận xét**: Tổng hòa tương quan giữa 14 biến số địa hình và cấu trúc nhà.")
+
+        with eda_tab_zoom:
+            chart_options = {
+                "01_missing_values.png": "01. Phân Tích Ô Khuyết (Missing Values)",
+                "02_price_histograms.png": "02. Phân Phối Giá & Chuẩn Hóa Log",
+                "03_correlation_with_log_price.png": "03. Hệ Số Tương Quan Tuyến Tính Với Log Giá",
+                "04_land_area_vs_price.png": "04. Tương Quan Phân Tán Diện Tích vs Giá Bán",
+                "05_price_by_property_type.png": "05. Phân Phối Giá Theo Loại Hình Bất Động Sản",
+                "06_price_by_location_type.png": "06. Phân Phối Giá Theo Vị Trí Đô Thị",
+                "07_distance_vs_price_per_m2.png": "07. Khoảng Cách Đến Trung Tâm vs Đơn Giá/m²",
+                "08_median_price_by_province.png": "08. Giá Trung Vị 63 Tỉnh Thành Việt Nam",
+                "09_correlation_heatmap.png": "09. Ma Trận Nhiệt Tương Quan Đa Biến (Heatmap)",
+            }
+            selected_chart_file = st.selectbox(
+                "Chọn biểu đồ bạn muốn soi kính hiển vi bản to:",
+                options=list(chart_options.keys()),
+                format_func=lambda k: chart_options[k],
+            )
+            zoom_path = os.path.join(eda_dir, selected_chart_file)
+            if os.path.exists(zoom_path):
+                st.image(zoom_path, caption=chart_options[selected_chart_file], use_container_width=True)
+    else:
+        st.info("Chưa tìm thấy thư mục eda_charts. Hãy chạy 'python vietnam_housing_data/02_eda.py' để khởi tạo.")
 
 # ==============================================================================
 # TAB 4: CÀI ĐẶT HỆ THỐNG & KẾT NỐI LLM (ẨN KHỎI GIAO DIỆN CHÍNH)
@@ -840,7 +964,7 @@ with settings_tab:
         model_list = [
             "openrouter/free",
             "meta-llama/llama-3.3-70b-instruct:free",
-            "google/gemini-2.0-flash-exp:free",
+            "google/gemini-2.0-flash-lite:free",
             "deepseek/deepseek-r1:free",
             "mistralai/mistral-7b-instruct:free",
         ]

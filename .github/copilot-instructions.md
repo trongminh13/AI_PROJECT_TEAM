@@ -3,7 +3,7 @@
 ## Hoai's project focus
 
 - Hoai's assigned area is the Machine Learning algorithms and related problem-solving tasks in HouseAssist.
-- Prioritize understanding, explaining, implementing, and validating the project's Random Forest house-price prediction, K-Means market segmentation, and similar-house search, using the existing King County dataset and project code as the source of truth.
+- Prioritize understanding, explaining, implementing, and validating the project's Random Forest house-price prediction, K-Means market segmentation, and similar-house search, using the Vietnam Housing dataset and project code as the source of truth.
 - For algorithm or exercise questions, explain the approach and reasoning clearly before or alongside code. Do not assume Hoai owns unrelated UI, deployment, or repository-wide work unless asked.
 
 ## Git workflow
