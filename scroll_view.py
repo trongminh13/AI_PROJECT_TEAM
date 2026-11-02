@@ -11,34 +11,34 @@ SCROLL_ITEMS = [
     {
         "id": "1",
         "label": "Cuộn 1",
-        "title": "📊 Thống kê Seattle",
+        "title": "📊 Thống kê Hà Nội",
         "subtitle": "Thị trường & giá trung vị",
         "seal": "市",
-        "prompt": "Cho tôi biết thống kê thị trường nhà đất tại thành phố Seattle?"
+        "prompt": "Cho tôi biết thống kê thị trường nhà đất tại Hà Nội?"
     },
     {
         "id": "2",
         "label": "Cuộn 2",
-        "title": "💰 Định giá Bellevue",
-        "subtitle": "Nhà 2,200 sqft, 3PN, 2PT",
+        "title": "💰 Định giá TP.HCM",
+        "subtitle": "Nhà phố 80m², 3PN, 3 tầng",
         "seal": "価",
-        "prompt": "Dự đoán giá căn nhà 2,200 sqft, 3 phòng ngủ, 2 phòng tắm tại Bellevue?"
+        "prompt": "Dự đoán giá căn nhà phố 80 m², 3 phòng ngủ, 3 tầng tại TP. Hồ Chí Minh?"
     },
     {
         "id": "3",
         "label": "Cuộn 3",
-        "title": "🏯 Phân khúc 3 tầng",
-        "subtitle": "Phân cụm tự nhiên K-Means",
+        "title": "🏯 Phân khúc 4 tầng",
+        "subtitle": "Phân cụm thị trường K-Means",
         "seal": "層",
-        "prompt": "Giải thích 3 phân khúc thị trường K-Means tại King County?"
+        "prompt": "Giải thích 4 phân khúc thị trường bất động sản Việt Nam (Bình dân, Trung cấp, Cao cấp, Hạng sang)?"
     },
     {
         "id": "4",
         "label": "Cuộn 4",
-        "title": "🌸 Tìm nhà Kent ~$500k",
+        "title": "🌸 Tìm nhà Đà Nẵng ~3 tỷ",
         "subtitle": "Lọc nhà phù hợp ngân sách",
         "seal": "居",
-        "prompt": "Tìm giúp tôi các căn nhà có giá khoảng 500,000 USD tại Kent?"
+        "prompt": "Tìm giúp tôi các căn nhà có giá khoảng 3 tỷ VNĐ tại Đà Nẵng?"
     }
 ]
 

@@ -2,32 +2,49 @@
 Module: agent.py
 Triển khai AI Agent Orchestrator kết nối OpenRouter API với Tool Calling và Memory:
 - Cấu hình OpenAI-compatible client trỏ tới OpenRouter
-- Định nghĩa Tool Schema chuẩn OpenAI function calling
+- Định nghĩa Tool Schema chuẩn OpenAI function calling cho thị trường bất động sản Việt Nam
 - Vòng lặp Tool Execution Loop (Model proposes -> Python executes -> Model answers)
 - Hỗ trợ fallback cục bộ thông minh nếu không có API key
 """
 
 import os
 import json
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from openai import OpenAI
 from tools import TOOL_CATALOG
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "openrouter/free"
 
-SYSTEM_PROMPT = """Bạn là HouseAssist, trợ lý AI chuyên nghiệp phân tích và định giá bất động sản tại vùng King County, bang Washington (khu vực Seattle, Bellevue, Redmond, Kirkland, Kent...).
+SYSTEM_PROMPT = """Bạn là HouseAssist, trợ lý AI chuyên nghiệp phân tích và định giá bất động sản tại thị trường Việt Nam.
+Phạm vi chuyên môn: nhà ở tại các tỉnh/thành lớn như Hà Nội, TP. Hồ Chí Minh, Đà Nẵng, Bình Dương, Đồng Nai, Cần Thơ và toàn quốc.
 
 Nhiệm vụ và Quy tắc ứng xử:
 1. Thân thiện, ngắn gọn, súc tích và có tính học thuật chuyên sâu.
 2. Sử dụng các công cụ (Tools) được cung cấp khi người dùng yêu cầu:
-   - Dự đoán giá nhà -> Dùng 'predict_house_price'
+   - Dự đoán giá nhà (Tỷ VNĐ) -> Dùng 'predict_house_price'
    - Thống kê thị trường (trung vị, min, max, số lượng giao dịch) -> Dùng 'get_market_statistics'
-   - Phân khúc căn nhà (Bình dân, Trung cấp, Cao cấp) -> Dùng 'segment_house'
+   - Phân khúc căn nhà (Bình dân, Trung cấp, Cao cấp, Hạng sang) -> Dùng 'segment_house'
    - Tìm kiếm căn nhà tương đồng trong bộ dữ liệu -> Dùng 'find_similar_houses'
    - Giải thích các yếu tố tác động đến giá trị (Feature Importance) -> Dùng 'explain_price_factors'
 3. Tuyệt đối không tự bịa đặt số liệu thống kê hoặc giá nhà khi chưa chạy công cụ.
-4. Tận dụng ngữ cảnh hội thoại trước đó (Follow-up questions) để điền các tham số còn thiếu (ví dụ nếu người dùng vừa dự đoán giá nhà ở Seattle 2000 sqft, câu sau hỏi "căn này thuộc phân khúc nào?" thì lấy giá và diện tích vừa tính).
-5. Trả lời bằng tiếng Việt chuyên nghiệp, định dạng số tiền rõ ràng (USD), kèm theo nhận xét ý nghĩa thực tế.
+4. Tận dụng ngữ cảnh hội thoại trước đó (Follow-up questions) để điền các tham số còn thiếu.
+5. Trả lời bằng tiếng Việt chuyên nghiệp, định dạng số tiền rõ ràng (Tỷ VNĐ / triệu/m²), kèm nhận xét thực tế.
+
+Đơn vị chuẩn:
+- Giá: Tỷ VNĐ (tỷ đồng). Ví dụ: 3.5 tỷ VNĐ.
+- Đơn giá: Triệu VNĐ/m². Ví dụ: 45 triệu/m².
+- Diện tích: m² (mét vuông). Ví dụ: 80 m².
+- Khoảng cách: km. Ví dụ: 5 km từ trung tâm.
+
+Phân khúc thị trường Việt Nam:
+- Bình dân: < 2 tỷ VNĐ
+- Trung cấp: 2–5 tỷ VNĐ
+- Cao cấp: 5–15 tỷ VNĐ
+- Hạng sang: > 15 tỷ VNĐ
 """
 
 TOOL_SCHEMAS = [
@@ -35,17 +52,21 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "predict_house_price",
-            "description": "Dự đoán giá bán căn nhà (USD) tại King County bằng mô hình Machine Learning Random Forest.",
+            "description": "Dự đoán giá bán căn nhà (Tỷ VNĐ) tại thị trường Việt Nam bằng mô hình Machine Learning Random Forest.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sqft_living": {
+                    "land_area": {
                         "type": "number",
-                        "description": "Diện tích sàn sinh hoạt (square feet, ví dụ 1500, 2000, 3200)",
+                        "description": "Diện tích đất (m², ví dụ 60, 80, 120)",
                     },
-                    "city": {
+                    "province": {
                         "type": "string",
-                        "description": "Thành phố tại King County (ví dụ Seattle, Bellevue, Redmond, Kent, Renton...)",
+                        "description": "Tỉnh/Thành phố (ví dụ Hà Nội, TP. Hồ Chí Minh, Đà Nẵng, Bình Dương...)",
+                    },
+                    "floor_area": {
+                        "type": "number",
+                        "description": "Tổng diện tích sàn (m², nếu không cung cấp sẽ tính từ land_area * floors)",
                     },
                     "bedrooms": {
                         "type": "integer",
@@ -53,34 +74,26 @@ TOOL_SCHEMAS = [
                     },
                     "bathrooms": {
                         "type": "number",
-                        "description": "Số phòng tắm (ví dụ 1.5, 2.0, 2.5)",
-                    },
-                    "sqft_lot": {
-                        "type": "number",
-                        "description": "Diện tích đất khuôn viên (square feet, ví dụ 5000, 7500)",
+                        "description": "Số phòng tắm (ví dụ 1.0, 2.0, 3.0)",
                     },
                     "floors": {
                         "type": "number",
-                        "description": "Số tầng (ví dụ 1.0, 1.5, 2.0)",
+                        "description": "Số tầng (ví dụ 1, 2, 3, 4)",
                     },
-                    "waterfront": {
-                        "type": "integer",
-                        "description": "Ven sông/hồ (1 là có, 0 là không)",
+                    "distance_to_center": {
+                        "type": "number",
+                        "description": "Khoảng cách đến trung tâm thành phố (km, ví dụ 3.0, 5.0, 10.0)",
                     },
-                    "view": {
-                        "type": "integer",
-                        "description": "Độ đẹp của tầm nhìn từ 0 đến 4",
+                    "property_type": {
+                        "type": "string",
+                        "description": "Loại bất động sản (ví dụ: Nhà phố, Nhà cấp 4, Biệt thự, Chung cư)",
                     },
-                    "condition": {
-                        "type": "integer",
-                        "description": "Tình trạng nhà từ 1 (kém) đến 5 (rất tốt)",
-                    },
-                    "yr_built": {
-                        "type": "integer",
-                        "description": "Năm xây dựng (ví dụ 1980, 2005)",
+                    "house_age": {
+                        "type": "number",
+                        "description": "Tuổi nhà (năm, ví dụ 0 = mới xây, 10, 20)",
                     },
                 },
-                "required": ["sqft_living"],
+                "required": ["land_area"],
             },
         },
     },
@@ -88,13 +101,13 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "get_market_statistics",
-            "description": "Lấy số liệu thống kê thị trường (giá trung vị, trung bình, min, max, đơn giá/sqft) toàn vùng King County hoặc theo từng thành phố cụ thể.",
+            "description": "Lấy số liệu thống kê thị trường bất động sản (giá trung vị, trung bình, min, max, đơn giá/m²) toàn quốc hoặc theo từng tỉnh/thành cụ thể.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "city": {
+                    "province": {
                         "type": "string",
-                        "description": "Tên thành phố cần tra cứu (ví dụ Seattle, Bellevue, Renton, Kirkland) hoặc để trống nếu muốn xem toàn vùng.",
+                        "description": "Tên tỉnh/thành phố cần tra cứu (ví dụ Hà Nội, Đà Nẵng, Bình Dương) hoặc để trống nếu muốn xem toàn quốc.",
                     }
                 },
             },
@@ -104,20 +117,20 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "segment_house",
-            "description": "Xác định phân khúc căn nhà (Bình dân / Trung cấp / Cao cấp) dựa trên giá bán và diện tích sàn sử dụng thuật toán K-Means.",
+            "description": "Xác định phân khúc căn nhà (Bình dân / Trung cấp / Cao cấp / Hạng sang) dựa trên giá bán và diện tích đất sử dụng thuật toán K-Means.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "price": {
+                    "price_billion_vnd": {
                         "type": "number",
-                        "description": "Giá bán của căn nhà (USD)",
+                        "description": "Giá bán của căn nhà (Tỷ VNĐ, ví dụ 1.5, 3.5, 10.0)",
                     },
-                    "sqft_living": {
+                    "land_area_m2": {
                         "type": "number",
-                        "description": "Diện tích sàn sinh hoạt (square feet)",
+                        "description": "Diện tích đất (m², ví dụ 60, 80, 150)",
                     },
                 },
-                "required": ["price", "sqft_living"],
+                "required": ["price_billion_vnd"],
             },
         },
     },
@@ -125,25 +138,25 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "find_similar_houses",
-            "description": "Tìm kiếm các căn nhà thực tế tương tự trong bộ dữ liệu King County theo thành phố, ngân sách giá hoặc diện tích.",
+            "description": "Tìm kiếm các căn nhà thực tế tương tự trong bộ dữ liệu Việt Nam theo tỉnh/thành, ngân sách giá hoặc diện tích.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "city": {
+                    "province": {
                         "type": "string",
-                        "description": "Thành phố mong muốn tìm",
+                        "description": "Tỉnh/Thành phố mong muốn tìm (ví dụ Hà Nội, TP. Hồ Chí Minh)",
                     },
-                    "target_price": {
+                    "target_price_billion": {
                         "type": "number",
-                        "description": "Ngân sách giá mong muốn (USD)",
+                        "description": "Ngân sách giá mong muốn (Tỷ VNĐ, ví dụ 2.5, 5.0)",
                     },
                     "bedrooms": {
                         "type": "integer",
                         "description": "Số phòng ngủ mong muốn",
                     },
-                    "sqft_living": {
+                    "land_area_m2": {
                         "type": "number",
-                        "description": "Diện tích sàn mong muốn (sqft)",
+                        "description": "Diện tích đất mong muốn (m²)",
                     },
                     "max_results": {
                         "type": "integer",
@@ -157,7 +170,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "explain_price_factors",
-            "description": "Trích xuất các yếu tố chi phối giá nhà từ mô hình Random Forest (Feature Importance) và giải thích logic định giá.",
+            "description": "Trích xuất các yếu tố chi phối giá nhà tại Việt Nam từ mô hình Random Forest (Feature Importance) và giải thích logic định giá.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -265,11 +278,11 @@ def run_agent_turn(
             return final_content, tool_logs
         else:
             # LLM trả lời trực tiếp không cần tool
-            return response_message.content or "Tôi có thể hỗ trợ gì thêm cho bạn về giá nhà King County?", tool_logs
+            return response_message.content or "Tôi có thể hỗ trợ gì thêm về thị trường bất động sản Việt Nam?", tool_logs
 
     except Exception as e:
         error_msg = str(e)
-        # Nếu gặp lỗi OpenRouter (như 401, quota, connection), chuyển sang fallback để đảm bảo ứng dụng không dừng
+        # Nếu gặp lỗi OpenRouter, chuyển sang fallback để đảm bảo ứng dụng không dừng
         fallback_ans, fallback_tools = _run_heuristic_fallback(messages[-1]["content"])
         warning_note = f"\n\n*(Lưu ý: Đã kích hoạt chế độ phân tích ngoại tuyến do kết nối OpenRouter gặp lỗi: {error_msg[:100]})*"
         return fallback_ans + warning_note, fallback_tools
@@ -282,21 +295,32 @@ def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
 
     # 1. Thống kê thị trường
     if any(k in text_lower for k in ["thống kê", "thị trường", "trung bình", "median", "bao nhiêu căn", "tổng số", "market"]):
-        city_found = None
-        for c in ["seattle", "bellevue", "redmond", "kirkland", "renton", "kent", "federal way"]:
-            if c in text_lower:
-                city_found = c.title()
+        province_found = None
+        for p in ["hà nội", "hồ chí minh", "đà nẵng", "bình dương", "đồng nai", "cần thơ", "hải phòng", "nha trang"]:
+            if p in text_lower:
+                # Chuyển về tên chuẩn
+                province_map = {
+                    "hà nội": "Hà Nội",
+                    "hồ chí minh": "TP. Hồ Chí Minh",
+                    "đà nẵng": "Đà Nẵng",
+                    "bình dương": "Bình Dương",
+                    "đồng nai": "Đồng Nai",
+                    "cần thơ": "Cần Thơ",
+                    "hải phòng": "Hải Phòng",
+                    "nha trang": "Khánh Hòa",
+                }
+                province_found = province_map.get(p)
                 break
-        res = TOOL_CATALOG["get_market_statistics"](city=city_found)
-        tool_logs.append({"tool_name": "get_market_statistics", "arguments": {"city": city_found}, "result": res})
-        ans = f"### Báo cáo Thống kê Thị trường ({res.get('scope', 'King County')}):\n"
-        ans += f"- **Tổng số giao dịch ghi nhận:** {res.get('total_transactions', 0):,} căn\n"
+        res = TOOL_CATALOG["get_market_statistics"](province=province_found)
+        tool_logs.append({"tool_name": "get_market_statistics", "arguments": {"province": province_found}, "result": res})
+        ans = f"### Báo cáo Thống kê Thị trường ({res.get('scope', 'Việt Nam')}):\n"
+        ans += f"- **Tổng số giao dịch ghi nhận:** {res.get('total_listings', 0):,} căn\n"
         ans += f"- **Giá trung vị (Median):** {res.get('median_price_formatted', 'N/A')}\n"
         ans += f"- **Giá trung bình:** {res.get('mean_price_formatted', 'N/A')}\n"
-        ans += f"- **Đơn giá trung bình:** {res.get('avg_price_per_sqft', 'N/A')}\n"
-        if "top_5_expensive_cities_by_median" in res:
-            ans += "\n**Top 5 thành phố có giá trung vị cao nhất:**\n"
-            for k, v in res["top_5_expensive_cities_by_median"].items():
+        ans += f"- **Đơn giá trung bình:** {res.get('avg_price_per_m2', 'N/A')}\n"
+        if "top_5_expensive_provinces" in res:
+            ans += "\n**Top 5 tỉnh/thành có giá trung vị cao nhất:**\n"
+            for k, v in res["top_5_expensive_provinces"].items():
                 ans += f"- {k}: {v}\n"
         return ans, tool_logs
 
@@ -304,7 +328,7 @@ def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
     if any(k in text_lower for k in ["yếu tố", "quan trọng", "ảnh hưởng", "feature importance", "tại sao giá", "tác động"]):
         res = TOOL_CATALOG["explain_price_factors"]()
         tool_logs.append({"tool_name": "explain_price_factors", "arguments": {}, "result": res})
-        ans = "### Các Yếu Tố Chi Phối Giá Nhà tại King County (Mô hình Random Forest):\n"
+        ans = "### Các Yếu Tố Chi Phối Giá Nhà tại Việt Nam (Mô hình Random Forest):\n"
         for insight in res.get("key_market_takeaways", []):
             ans += f"- {insight}\n"
         ans += "\n**Tỷ lệ quan trọng của Top 5 đặc trưng:**\n"
@@ -313,42 +337,57 @@ def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
         return ans, tool_logs
 
     # 3. Phân khúc nhà
-    if any(k in text_lower for k in ["phân khúc", "bình dân", "trung cấp", "cao cấp", "segment"]):
-        # Lấy số nếu có
+    if any(k in text_lower for k in ["phân khúc", "bình dân", "trung cấp", "cao cấp", "hạng sang", "segment"]):
         import re
-        nums = re.findall(r"\d+", text_lower.replace(",", "").replace(".", ""))
-        price = 550000.0
-        sqft = 2000.0
-        if len(nums) >= 2:
-            price = float(nums[0]) if float(nums[0]) > 10000 else float(nums[1])
-            sqft = float(nums[1]) if float(nums[0]) > 10000 else float(nums[0])
-        res = TOOL_CATALOG["segment_house"](price=price, sqft_living=sqft)
-        tool_logs.append({"tool_name": "segment_house", "arguments": {"price": price, "sqft_living": sqft}, "result": res})
-        ans = f"### Phân Khúc Bất Động Sản (K-Means Clustering):\n"
+        nums = re.findall(r"[\d]+(?:[.,]\d+)?", text_lower.replace(",", "."))
+        price = 3.5
+        area = 80.0
+        float_nums = []
+        for n in nums:
+            try:
+                float_nums.append(float(n.replace(",", ".")))
+            except Exception:
+                pass
+        if float_nums:
+            # Heuristic: số lớn hơn 10 thường là diện tích, nhỏ hơn là giá (tỷ)
+            for n in float_nums:
+                if n > 10:
+                    area = n
+                else:
+                    price = n
+        res = TOOL_CATALOG["segment_house"](price_billion_vnd=price, land_area_m2=area)
+        tool_logs.append({"tool_name": "segment_house", "arguments": {"price_billion_vnd": price, "land_area_m2": area}, "result": res})
+        ans = f"### Phân Khúc Bất Động Sản Việt Nam (K-Means Clustering):\n"
         ans += f"- **Phân khúc:** {res['segment_name']}\n"
         ans += f"- **Mức giá phân tích:** {res['price_analyzed']}\n"
-        ans += f"- **Diện tích phân tích:** {res['sqft_analyzed']}\n"
+        ans += f"- **Diện tích phân tích:** {res['area_analyzed']}\n"
         ans += f"- **Đặc điểm thị trường:** {res['market_profile']}\n"
         return ans, tool_logs
 
     # 4. Tìm kiếm nhà tương đồng
     if any(k in text_lower for k in ["tìm nhà", "tìm kiếm", "căn nhà tương tự", "tương đồng", "find"]):
-        res = TOOL_CATALOG["find_similar_houses"](city="Seattle", max_results=3)
-        tool_logs.append({"tool_name": "find_similar_houses", "arguments": {"city": "Seattle"}, "result": res})
+        res = TOOL_CATALOG["find_similar_houses"](province="Hà Nội", max_results=3)
+        tool_logs.append({"tool_name": "find_similar_houses", "arguments": {"province": "Hà Nội"}, "result": res})
         ans = "### Các Căn Nhà Tương Đồng Tiêu Biểu Trong Bộ Dữ Liệu:\n"
         for idx, h in enumerate(res.get("matches", []), 1):
-            ans += f"{idx}. **{h['address']}, {h['city']}**\n"
-            ans += f"   - Giá: `{h['price_formatted']}` | Diện tích: `{h['sqft_living']} sqft`\n"
-            ans += f"   - Cấu trúc: {h['bedrooms']} phòng ngủ, {h['bathrooms']} phòng tắm, xây năm {h['yr_built']}\n"
+            name = h.get("display_name") or f"Nhà tại {h.get('province', 'Việt Nam')}"
+            ans += f"{idx}. **{name} — {h.get('province')}, {h.get('district', '')}**\n"
+            if h.get("full_address"):
+                ans += f"   - Địa chỉ: `{h['full_address']}`\n"
+            ans += f"   - Giá: `{h['price_formatted']}` | Đơn giá: `{h['price_per_m2']}` ({h.get('price_segment', '')})\n"
+            ans += f"   - Diện tích đất: `{h['land_area_m2']} m²` | {h['bedrooms']} PN, {h['bathrooms']} PT, {h.get('floors', 1)} tầng\n"
+            legal = h.get("legal_status") or "Đang cập nhật"
+            furn = h.get("furniture_state") or "Không rõ"
+            ans += f"   - Pháp lý: {legal} | Nội thất: {furn}\n"
         return ans, tool_logs
 
     # 5. Mặc định: Dự đoán giá nhà
-    res = TOOL_CATALOG["predict_house_price"](sqft_living=2000, city="Seattle", bedrooms=3, bathrooms=2.0)
-    tool_logs.append({"tool_name": "predict_house_price", "arguments": {"sqft_living": 2000, "city": "Seattle"}, "result": res})
-    ans = f"### Ước Tính Định Giá Bất Động Sản (Mô hình Random Forest):\n"
+    res = TOOL_CATALOG["predict_house_price"](land_area=80, province="Hà Nội", bedrooms=3, bathrooms=2.0, floors=3)
+    tool_logs.append({"tool_name": "predict_house_price", "arguments": {"land_area": 80, "province": "Hà Nội"}, "result": res})
+    ans = f"### Ước Tính Định Giá Bất Động Sản Việt Nam (Mô hình Random Forest):\n"
     ans += f"- **Giá dự đoán điểm:** {res['estimated_price_formatted']}\n"
-    ans += f"- **Khoảng dao động tin cậy (90%):** {res['price_range_formatted']}\n"
-    ans += f"- **Đơn giá ước tính:** ${res['price_per_sqft_usd']}/sqft\n"
-    ans += f"- **Thông số mặc định sử dụng:** Nhà 2,000 sqft, 3 phòng ngủ, 2 phòng tắm tại Seattle.\n"
-    ans += "\n*(Bạn có thể cung cấp chi tiết diện tích, số phòng và thành phố để tôi định giá chính xác hơn!)*"
+    ans += f"- **Khoảng dao động tin cậy (88–112%):** {res['price_range_formatted']}\n"
+    ans += f"- **Đơn giá ước tính:** {res['price_per_m2_formatted']}\n"
+    ans += f"- **Thông số mặc định sử dụng:** Nhà phố 80 m², 3 phòng ngủ, 2 phòng tắm tại Hà Nội.\n"
+    ans += "\n*(Bạn có thể cung cấp chi tiết diện tích, số phòng và tỉnh/thành để tôi định giá chính xác hơn!)*"
     return ans, tool_logs
