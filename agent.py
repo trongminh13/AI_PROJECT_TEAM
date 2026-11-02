@@ -290,71 +290,54 @@ def run_agent_turn(
 
 def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
     """Bộ điều phối thông minh chạy cục bộ khi không có mạng hoặc chưa nhập OpenRouter key."""
+    import re
     text_lower = user_text.lower()
     tool_logs = []
 
-    # 1. Thống kê thị trường
-    if any(k in text_lower for k in ["thống kê", "thị trường", "trung bình", "median", "bao nhiêu căn", "tổng số", "market"]):
-        province_found = None
-        for p in ["hà nội", "hồ chí minh", "đà nẵng", "bình dương", "đồng nai", "cần thơ", "hải phòng", "nha trang"]:
-            if p in text_lower:
-                # Chuyển về tên chuẩn
-                province_map = {
-                    "hà nội": "Hà Nội",
-                    "hồ chí minh": "TP. Hồ Chí Minh",
-                    "đà nẵng": "Đà Nẵng",
-                    "bình dương": "Bình Dương",
-                    "đồng nai": "Đồng Nai",
-                    "cần thơ": "Cần Thơ",
-                    "hải phòng": "Hải Phòng",
-                    "nha trang": "Khánh Hòa",
-                }
-                province_found = province_map.get(p)
-                break
-        res = TOOL_CATALOG["get_market_statistics"](province=province_found)
-        tool_logs.append({"tool_name": "get_market_statistics", "arguments": {"province": province_found}, "result": res})
-        ans = f"### Báo cáo Thống kê Thị trường ({res.get('scope', 'Việt Nam')}):\n"
-        ans += f"- **Tổng số giao dịch ghi nhận:** {res.get('total_listings', 0):,} căn\n"
-        ans += f"- **Giá trung vị (Median):** {res.get('median_price_formatted', 'N/A')}\n"
-        ans += f"- **Giá trung bình:** {res.get('mean_price_formatted', 'N/A')}\n"
-        ans += f"- **Đơn giá trung bình:** {res.get('avg_price_per_m2', 'N/A')}\n"
-        if "top_5_expensive_provinces" in res:
-            ans += "\n**Top 5 tỉnh/thành có giá trung vị cao nhất:**\n"
-            for k, v in res["top_5_expensive_provinces"].items():
-                ans += f"- {k}: {v}\n"
+    # 0. Kiểm tra địa danh quốc tế / ngoài phạm vi hỗ trợ
+    foreign_cities = ["tokyo", "paris", "london", "new york", "seattle", "bắc kinh", "bangkok", "singapore", "sao hỏa", "berlin", "sydney"]
+    if any(c in text_lower for c in foreign_cities):
+        res = TOOL_CATALOG["get_market_statistics"]("QuocTe")
+        tool_logs.append({"tool_name": "get_market_statistics", "arguments": {"province": "QuocTe"}, "result": res})
+        ans = "### Thông Báo Phạm Vi Dữ Liệu:\n"
+        ans += "Hiện tại hệ thống **HouseAssist** chỉ hỗ trợ phân tích và định giá bất động sản tại thị trường **Việt Nam** (như Hà Nội, TP. Hồ Chí Minh, Đà Nẵng, Bình Dương, Đồng Nai, Cần Thơ...).\n\n"
+        ans += "Hệ thống chưa hỗ trợ dữ liệu tại các thành phố quốc tế. Bạn vui lòng tra cứu theo các tỉnh/thành tại Việt Nam nhé!"
         return ans, tool_logs
 
-    # 2. Yếu tố chi phối giá
-    if any(k in text_lower for k in ["yếu tố", "quan trọng", "ảnh hưởng", "feature importance", "tại sao giá", "tác động"]):
-        res = TOOL_CATALOG["explain_price_factors"]()
-        tool_logs.append({"tool_name": "explain_price_factors", "arguments": {}, "result": res})
-        ans = "### Các Yếu Tố Chi Phối Giá Nhà tại Việt Nam (Mô hình Random Forest):\n"
-        for insight in res.get("key_market_takeaways", []):
-            ans += f"- {insight}\n"
-        ans += "\n**Tỷ lệ quan trọng của Top 5 đặc trưng:**\n"
-        for k, v in list(res.get("top_factors_importance_share", {}).items())[:5]:
-            ans += f"- `{k}`: {v*100:.1f}%\n"
-        return ans, tool_logs
+    def _extract_province(t: str):
+        province_map = {
+            "hà nội": "Hà Nội",
+            "hồ chí minh": "TP. Hồ Chí Minh",
+            "tp.hcm": "TP. Hồ Chí Minh",
+            "tphcm": "TP. Hồ Chí Minh",
+            "sài gòn": "TP. Hồ Chí Minh",
+            "đà nẵng": "Đà Nẵng",
+            "bình dương": "Bình Dương",
+            "đồng nai": "Đồng Nai",
+            "cần thơ": "Cần Thơ",
+            "hải phòng": "Hải Phòng",
+            "nha trang": "Khánh Hòa",
+            "khánh hòa": "Khánh Hòa",
+            "vũng tàu": "Bà Rịa - Vũng Tàu",
+            "huế": "Huế",
+        }
+        for p, name in province_map.items():
+            if p in t:
+                return name
+        return None
 
-    # 3. Phân khúc nhà
-    if any(k in text_lower for k in ["phân khúc", "bình dân", "trung cấp", "cao cấp", "hạng sang", "segment"]):
-        import re
-        nums = re.findall(r"[\d]+(?:[.,]\d+)?", text_lower.replace(",", "."))
-        price = 3.5
-        area = 80.0
-        float_nums = []
-        for n in nums:
-            try:
-                float_nums.append(float(n.replace(",", ".")))
-            except Exception:
-                pass
-        if float_nums:
-            # Heuristic: số lớn hơn 10 thường là diện tích, nhỏ hơn là giá (tỷ)
-            for n in float_nums:
-                if n > 10:
-                    area = n
-                else:
-                    price = n
+    # Trích xuất các tham số số học cơ bản
+    detected_prov = _extract_province(text_lower)
+    m_price = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:tỷ|ty|billion)", text_lower)
+    m_area = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:m2|m²|mét vuông)", text_lower)
+    m_bed = re.search(r"(\d+)\s*(?:phòng ngủ|pn|phòng)", text_lower)
+    m_bath = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:phòng tắm|pt|wc|toilet)", text_lower)
+    m_floor = re.search(r"(\d+)\s*(?:tầng)", text_lower)
+
+    # 1. Phân khúc nhà (Ưu tiên kiểm tra trước Thống kê thị trường để tránh xung đột từ "thị trường")
+    if any(k in text_lower for k in ["phân khúc", "segment", "hạng sang", "bình dân", "trung cấp", "cao cấp"]):
+        price = float(m_price.group(1).replace(",", ".")) if m_price else 3.5
+        area = float(m_area.group(1).replace(",", ".")) if m_area else 80.0
         res = TOOL_CATALOG["segment_house"](price_billion_vnd=price, land_area_m2=area)
         tool_logs.append({"tool_name": "segment_house", "arguments": {"price_billion_vnd": price, "land_area_m2": area}, "result": res})
         ans = f"### Phân Khúc Bất Động Sản Việt Nam (K-Means Clustering):\n"
@@ -364,11 +347,17 @@ def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
         ans += f"- **Đặc điểm thị trường:** {res['market_profile']}\n"
         return ans, tool_logs
 
-    # 4. Tìm kiếm nhà tương đồng
-    if any(k in text_lower for k in ["tìm nhà", "tìm kiếm", "căn nhà tương tự", "tương đồng", "find"]):
-        res = TOOL_CATALOG["find_similar_houses"](province="Hà Nội", max_results=3)
-        tool_logs.append({"tool_name": "find_similar_houses", "arguments": {"province": "Hà Nội"}, "result": res})
-        ans = "### Các Căn Nhà Tương Đồng Tiêu Biểu Trong Bộ Dữ Liệu:\n"
+    # 2. Tìm kiếm căn nhà thực tế tương đồng
+    if any(k in text_lower for k in ["tìm", "căn nhà thực tế", "tương đồng", "tương tự", "nhà mẫu", "gợi ý căn", "find"]):
+        prov = detected_prov or "Hà Nội"
+        target_price = float(m_price.group(1).replace(",", ".")) if m_price else None
+        bedrooms = int(m_bed.group(1)) if m_bed else 3
+        kwargs = {"province": prov, "bedrooms": bedrooms, "max_results": 3}
+        if target_price:
+            kwargs["target_price_billion"] = target_price
+        res = TOOL_CATALOG["find_similar_houses"](**kwargs)
+        tool_logs.append({"tool_name": "find_similar_houses", "arguments": kwargs, "result": res})
+        ans = f"### Các Căn Nhà Thực Tế Tương Đồng Tại {prov} (Bộ Dữ Liệu house_cleaned.csv):\n"
         for idx, h in enumerate(res.get("matches", []), 1):
             name = h.get("display_name") or f"Nhà tại {h.get('province', 'Việt Nam')}"
             ans += f"{idx}. **{name} — {h.get('province')}, {h.get('district', '')}**\n"
@@ -381,13 +370,54 @@ def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
             ans += f"   - Pháp lý: {legal} | Nội thất: {furn}\n"
         return ans, tool_logs
 
-    # 5. Mặc định: Dự đoán giá nhà
-    res = TOOL_CATALOG["predict_house_price"](land_area=80, province="Hà Nội", bedrooms=3, bathrooms=2.0, floors=3)
-    tool_logs.append({"tool_name": "predict_house_price", "arguments": {"land_area": 80, "province": "Hà Nội"}, "result": res})
+    # 3. Yếu tố chi phối giá (Feature Importance)
+    if any(k in text_lower for k in ["yếu tố", "quan trọng", "ảnh hưởng", "feature importance", "tại sao giá", "tác động"]):
+        res = TOOL_CATALOG["explain_price_factors"]()
+        tool_logs.append({"tool_name": "explain_price_factors", "arguments": {}, "result": res})
+        ans = "### Các Yếu Tố Chi Phối Giá Nhà tại Việt Nam (Mô hình Random Forest):\n"
+        for insight in res.get("key_market_takeaways", []):
+            ans += f"- {insight}\n"
+        ans += "\n**Tỷ lệ quan trọng của Top 5 đặc trưng:**\n"
+        for k, v in list(res.get("top_factors_importance_share", {}).items())[:5]:
+            ans += f"- `{k}`: {v*100:.1f}%\n"
+        return ans, tool_logs
+
+    # 4. Thống kê thị trường
+    if any(k in text_lower for k in ["thống kê", "thị trường", "trung bình", "median", "bao nhiêu căn", "tổng số", "market"]):
+        res = TOOL_CATALOG["get_market_statistics"](province=detected_prov)
+        tool_logs.append({"tool_name": "get_market_statistics", "arguments": {"province": detected_prov}, "result": res})
+        ans = f"### Báo cáo Thống kê Thị trường ({res.get('scope', 'Việt Nam')}):\n"
+        ans += f"- **Tổng số giao dịch ghi nhận:** {res.get('total_listings', 0):,} căn\n"
+        ans += f"- **Giá trung vị (Median):** {res.get('median_price_formatted', 'N/A')}\n"
+        ans += f"- **Giá trung bình:** {res.get('mean_price_formatted', 'N/A')}\n"
+        ans += f"- **Đơn giá trung bình:** {res.get('avg_price_per_m2', 'N/A')}\n"
+        if "top_5_expensive_provinces" in res:
+            ans += "\n**Top 5 tỉnh/thành có giá trung vị cao nhất:**\n"
+            for k, v in res["top_5_expensive_provinces"].items():
+                ans += f"- {k}: {v}\n"
+        return ans, tool_logs
+
+    # 5. Mặc định: Dự đoán giá nhà (Random Forest)
+    land_area = float(m_area.group(1).replace(",", ".")) if m_area else 80.0
+    province = detected_prov or "Hà Nội"
+    bedrooms = int(m_bed.group(1)) if m_bed else 3
+    bathrooms = float(m_bath.group(1).replace(",", ".")) if m_bath else 2.0
+    floors = int(m_floor.group(1)) if m_floor else 3
+
+    kwargs = {
+        "land_area": land_area,
+        "province": province,
+        "bedrooms": bedrooms,
+        "bathrooms": bathrooms,
+        "floors": floors,
+    }
+    res = TOOL_CATALOG["predict_house_price"](**kwargs)
+    tool_logs.append({"tool_name": "predict_house_price", "arguments": kwargs, "result": res})
     ans = f"### Ước Tính Định Giá Bất Động Sản Việt Nam (Mô hình Random Forest):\n"
+    ans += f"- **Tỉnh/Thành:** {province}\n"
+    ans += f"- **Thông số nhà:** {land_area:.0f} m², {bedrooms} PN, {bathrooms:.0f} PT, {floors} tầng\n"
     ans += f"- **Giá dự đoán điểm:** {res['estimated_price_formatted']}\n"
     ans += f"- **Khoảng dao động tin cậy (88–112%):** {res['price_range_formatted']}\n"
     ans += f"- **Đơn giá ước tính:** {res['price_per_m2_formatted']}\n"
-    ans += f"- **Thông số mặc định sử dụng:** Nhà phố 80 m², 3 phòng ngủ, 2 phòng tắm tại Hà Nội.\n"
-    ans += "\n*(Bạn có thể cung cấp chi tiết diện tích, số phòng và tỉnh/thành để tôi định giá chính xác hơn!)*"
+    ans += "\n*(Bạn có thể cung cấp thêm diện tích, số tầng hoặc quận/huyện để định giá chi tiết hơn!)*"
     return ans, tool_logs
