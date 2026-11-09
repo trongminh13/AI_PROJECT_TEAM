@@ -38,9 +38,9 @@ st.set_page_config(
 if "enable_video_bg" not in st.session_state:
     st.session_state.enable_video_bg = True
 if "bg_blur" not in st.session_state:
-    st.session_state.bg_blur = 2
+    st.session_state.bg_blur = 12   # Tăng độ mờ (blur) lên 12 để làm nhòe phông nền
 if "bg_darkness" not in st.session_state:
-    st.session_state.bg_darkness = 25
+    st.session_state.bg_darkness = 60  # Tăng độ tối lên 60% để tạo độ sâu
 
 @st.cache_data
 def get_ambient_video_b64(video_path: str = "assets/ambient_bg.mp4") -> str:
@@ -61,21 +61,14 @@ def get_output_font_b64(font_path: str = os.path.join(os.path.dirname(__file__),
 
 
 def render_tool_output(data: dict) -> None:
-    """Hiển thị dữ liệu tool trong khung cuộn dùng font SVN Hottroof Semhesta."""
-    font_b64 = get_output_font_b64()
-    font_face = (
-        f"@font-face{{font-family:'SVNHottroof';src:url(data:font/otf;base64,{font_b64}) format('opentype');font-display:swap}}"
-        if font_b64
-        else ""
-    )
+    """Hiển thị dữ liệu tool trong khung cuộn dùng font chuẩn lập trình (Monospace)."""
     formatted_json = html.escape(json.dumps(data, ensure_ascii=False, indent=2, default=str))
     component_html = f"""<!doctype html>
 <html><head><meta charset="utf-8"><style>
-{font_face}
 * {{ box-sizing: border-box; }}
 html, body {{ margin: 0; background: transparent; color: #E2E8F0; }}
 .output {{ height: 310px; overflow: auto; padding: 14px 16px; border: 1px solid rgba(183,157,114,.35); border-radius: 8px; background: rgba(7,11,25,.78); }}
-pre {{ margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: 'SVNHottroof', sans-serif; font-size: 15px; line-height: 1.65; }}
+pre {{ margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: Consolas, "Courier New", monospace; font-size: 14px; line-height: 1.65; color: #38BDF8; }}
 </style></head><body><div class="output"><pre>{formatted_json}</pre></div></body></html>"""
     st.iframe(src=component_html, height=330, width="stretch")
 
@@ -115,13 +108,16 @@ st.markdown(
     f"""
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,400&display=swap" rel="stylesheet">
+    <!-- THÊM &subset=vietnamese ĐỂ KHÔNG BỊ LỖI DẤU TIẾNG VIỆT, BỎ FONT MỎNG 300 ĐI -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,400&display=swap&subset=vietnamese" rel="stylesheet">
 
     <style>
     /* Reset & Typography */
     html, body, [class*="css"] {{
-        font-family: 'Outfit', sans-serif;
-        color: #E2E8F0;
+        font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        color: #FFFFFF !important; /* ĐỔI SANG MÀU TRẮNG TINH 100% */
+        font-weight: 500 !important; /* TĂNG ĐỘ ĐẬM CỦA CHỮ LÊN MỨC MEDIUM */
+        text-shadow: 0px 1px 3px rgba(0,0,0,0.5); /* THÊM BÓNG ĐỔ ĐEN NHẸ ĐỂ CHỮ NỔI LÊN NỀN SÁNG */
     }}
 
     /* Nền ứng dụng (Động trong suốt khi bật video nền, Tĩnh khi tắt) */
@@ -206,12 +202,12 @@ st.markdown(
     .hero-title {{
         font-family: 'Playfair Display', serif;
         font-size: 2.8rem;
-        font-weight: 700;
-        background: linear-gradient(135deg, #FFFFFF 20%, #A5F3FC 60%, #38BDF8 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        font-weight: 800;
+        color: #000000 !important; /* Đen tuyền sắc nét */
         letter-spacing: -0.5px;
         margin-bottom: 0.2rem;
+        /* Triệt tiêu bóng viền, thay bằng hào quang sáng mờ 360 độ phía sau chữ */
+        text-shadow: 0 0 25px rgba(255, 255, 255, 1) !important;
     }}
 
     .hero-subtitle {{
@@ -275,39 +271,7 @@ st.markdown(
 
     /* ==========================================================================
        KHUNG NHẬP LIỆU CHAT INPUT GỖ ẤM SHOJI (ZEN COMMAND CENTER)
-       - Chiều rộng bằng 2/3 so với lúc đầu (width: 67%), căn giữa cân đối
-       - Đổi màu sang màu nâu giống khung gỗ Trà Thất Shoji (--wood-dark, --wood)
-       - Khung hình chữ nhật bên trong bo góc mềm mại (border-radius: 16px)
-       - Đặt sát ngay dưới khung Trà Thất
        ========================================================================== */
-    [data-testid="stBottom"] > div {{
-        max-width: 100% !important;
-        padding-left: 0 !important;
-        padding-right: 0 !important;
-        background: transparent !important;
-    }}
-
-    [data-testid="stBottom"] {{
-        background: transparent !important;
-        padding-bottom: 0.5rem !important;
-    }}
-
-    /* Triệt tiêu hoàn toàn khoảng hở đáy của iframe */
-    div[data-testid="stIFrame"],
-    .stIFrame,
-    iframe[data-testid="stIFrame"] {{
-        margin-bottom: 0px !important;
-        padding-bottom: 0px !important;
-        display: block !important;
-    }}
-
-    [data-testid="stChatInput"] {{
-        width: 67% !important;
-        max-width: 960px !important;
-        margin: -16px auto 0.8rem auto !important;
-        padding-bottom: 0.3rem !important;
-    }}
-
     /* Container bên ngoài của ô nhập: Màu nâu gỗ Trà Thất Shoji, viền Kumiko, bo góc 24px */
     [data-testid="stChatInput"] > div {{
         border-radius: 24px !important;
@@ -494,6 +458,32 @@ st.markdown(
         color: #0B132B !important;
         box-shadow: 0 0 25px #00F0FF !important;
     }}
+
+    /* --- BỘ CODE CHUYÊN TRỊ ST.BOTTOM MỚI NHẤT --- */
+    
+    /* Tắt tính năng Neo Đáy của Streamlit */
+    div[data-testid="stBottom"] {{
+        position: static !important;
+        background: transparent !important;
+        padding-bottom: 0px !important;
+        display: block !important;
+    }}
+    
+    /* Cho khung Chat trôi tự do trong cột của nó */
+    div[data-testid="stBottom"] > div {{
+        display: block !important;
+        background: transparent !important;
+        position: relative !important;
+    }}
+
+    /* Chỉnh kích thước và kéo khung chat sát vào cửa gỗ */
+    div[data-testid="stChatInput"] {{
+        width: 100% !important; /* Dùng 100% chiều rộng của cột bên trái */
+        max-width: 960px !important;
+        margin: -25px auto 1rem auto !important; /* Lên nhẹ 25px */
+        position: relative !important;
+        z-index: 999999 !important;
+    }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -510,6 +500,8 @@ if "shoji_a" not in st.session_state:
     st.session_state.shoji_a = ""
 if "last_tools" not in st.session_state:
     st.session_state.last_tools = []
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
 # Cấu hình API key mặc định
 if "api_key" not in st.session_state:
@@ -565,6 +557,7 @@ with st.sidebar:
 
     # Nút Reset hội thoại góc vuông với viền neon loop
     if st.button("🔄 Làm Mới Hội Thoại", width="stretch"):
+        st.session_state.chat_history = []
         st.session_state.shoji_q = ""
         st.session_state.shoji_a = ""
         st.session_state.last_tools = []
@@ -631,9 +624,20 @@ with main_tab:
             pass
 
     with shoji_col:
-        # SÂN KHẤU TRÀ THẤT SHOJI DUY NHẤT (Single Master Sanctuary Theater)
+        # 1. Container cho toàn bộ khu vực bên trái (Trà Thất + Chat)
+        st.markdown('<div class="zen-container">', unsafe_allow_html=True)
+        
+        # 2. Render khung Trà Thất Shoji
         shoji_markup = get_shoji_html(st.session_state.shoji_q, st.session_state.shoji_a)
-        st.iframe(src=shoji_markup, height=590, width="stretch")
+        st.iframe(src=shoji_markup, height=500, width="stretch")
+        
+        # 3. Tạo một khoảng đệm mỏng
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+        
+        # 4. Đặt Chat Input thẳng vào cùng cột với Trà Thất (Streamlit sẽ tự động đẩy xuống dưới)
+        user_input = st.chat_input("✨ Đặt câu hỏi cho Trà Thất Shoji về định giá, phân khúc, vị trí hoặc tìm nhà...")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with quick_col:
         # Tiêu đề & CSS toàn diện cho 4 cuộn thư cổ xưa kết hợp Native Button Overlay
@@ -658,35 +662,54 @@ with main_tab:
                 if st.button(item["label"], key=f"overlay_scroll_btn_{idx}"):
                     quick_prompt = item["prompt"]
 
-    # Khung nhập liệu Chat Input gỗ ấm Shoji, bề ngang 2/3, đặt sát ngay dưới Khung Trà Thất
-    chat_box = st.container()
-    with chat_box:
-        user_input = st.chat_input("✨ Đặt câu hỏi cho Trà Thất Shoji về định giá, phân khúc, vị trí hoặc tìm nhà...")
     active_prompt = quick_prompt or user_input
 
     if active_prompt:
         with st.spinner("Người trong Trà Thất Shoji đang mở sổ sách & kích hoạt mô hình AI..."):
-            agent_history = [{"role": "user", "content": active_prompt}]
+            
+            # CẤP TRÍ NHỚ (STATEFUL MEMORY) CHO HỆ THỐNG
+            if "chat_history" not in st.session_state:
+                st.session_state.chat_history = []
+                
+            st.session_state.chat_history.append({"role": "user", "content": active_prompt})
+            
+            # CHẠY AGENT ORCHESTRATOR
             response_text, tools_executed = run_agent_turn(
-                messages=agent_history,
+                messages=st.session_state.chat_history,
                 api_key=st.session_state.api_key,
                 model=st.session_state.selected_model,
             )
+            
+            # LƯU KẾT QUẢ VÀO TRÍ NHỚ
+            st.session_state.chat_history.append({"role": "assistant", "content": response_text})
+            
             # Cập nhật trực tiếp vào Khung Trà Thất Shoji duy nhất và rerun
             st.session_state.shoji_q = active_prompt
             st.session_state.shoji_a = response_text
             st.session_state.last_tools = tools_executed
             st.rerun()
 
-    # Expander xem bản chép văn bản & chi tiết công cụ ML (nếu đã có câu trả lời)
+    # Expander xem bản chép văn bản, lịch sử hội thoại & chi tiết công cụ ML
     if st.session_state.get("shoji_a"):
-        with st.expander("📜 Xem Bản Chép Văn Bản & Phân Tích Công Cụ (Transcript & Tool Inspection)", expanded=False):
-            st.markdown(f"**Câu hỏi đã đặt:** {st.session_state.shoji_q}")
-            st.markdown("---")
-            st.markdown(st.session_state.shoji_a)
-            if st.session_state.get("last_tools"):
+        with st.expander("📜 Cuộn Log Lịch Sử Hội Thoại & Phân Tích Công Cụ", expanded=False):
+            st.markdown("### 🗂️ Lịch Sử Trò Chuyện (Chat History)")
+            
+            # Quét và in ra toàn bộ lịch sử trong chat_history
+            if "chat_history" in st.session_state and len(st.session_state.chat_history) > 0:
+                for idx, msg in enumerate(st.session_state.chat_history):
+                    if msg["role"] == "user":
+                        st.markdown(f"**👤 Bạn:** {msg['content']}")
+                    elif msg["role"] == "assistant":
+                        st.info(f"**🤖 Trà Thất Shoji:**\n\n{msg['content']}")
+                        st.markdown("---")
+            else:
+                st.markdown(f"**👤 Bạn:** {st.session_state.shoji_q}")
+                st.info(f"**🤖 Trà Thất Shoji:**\n\n{st.session_state.shoji_a}")
                 st.markdown("---")
-                st.markdown("##### 🛠️ Chi tiết công cụ Machine Learning đã thực thi:")
+            
+            # Hiển thị Tool của lượt tương tác CUỐI CÙNG
+            if st.session_state.get("last_tools"):
+                st.markdown("##### 🛠️ Chi tiết công cụ Machine Learning (Lượt cuối):")
                 for t in st.session_state.last_tools:
                     st.markdown(f"- **Công cụ:** `{t.get('tool_name')}`")
                     render_tool_output({"Tham số đầu vào": t.get("arguments"), "Kết quả trả về": t.get("result")})
@@ -961,10 +984,11 @@ with settings_tab:
             st.session_state.api_key = new_key
             st.success("Đã cập nhật API Key vào phiên làm việc hiện tại!")
 
+        # MANG GOOGLE GEMINI 2.0 LÊN MẶC ĐỊNH CHO TOOL CALLING HOÀN HẢO NHẤT
         model_list = [
-            "openrouter/free",
-            "meta-llama/llama-3.3-70b-instruct:free",
             "google/gemini-2.0-flash-lite:free",
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "openrouter/free",
             "deepseek/deepseek-r1:free",
             "mistralai/mistral-7b-instruct:free",
         ]
@@ -978,6 +1002,7 @@ with settings_tab:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### 🧹 Quản Trị Phiên Làm Việc (Session State)")
         if st.button("Làm Mới Lịch Sử Hội Thoại (Reset Chat)", width="stretch"):
+            st.session_state.chat_history = []
             st.session_state.shoji_q = ""
             st.session_state.shoji_a = ""
             st.session_state.last_tools = []
@@ -1015,7 +1040,7 @@ with settings_tab:
                 <div class="card-desc">
                     • Mẫu thiết kế: SkyAssist Single-Model Pattern<br>
                     • Engine: Scikit-Learn + OpenRouter API<br>
-                    • Học viên: Đỗ Trọng Minh
+                    • Học viên: Nguyễn Minh Hoài
                 </div>
             </div>
             """,
