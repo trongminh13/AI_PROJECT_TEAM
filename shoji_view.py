@@ -33,11 +33,13 @@ def get_shoji_html(question: str = "", answer: str = "") -> str:
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
     padding: 0px;
+    margin: 0px;
+    height: 100vh;
     background: transparent;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif !important;
     color: #e7ddcc;
     overflow: hidden;
   }}
@@ -45,10 +47,12 @@ def get_shoji_html(question: str = "", answer: str = "") -> str:
 
   /* ================= KHUNG CỬA ================= */
   .frame {{
-    --pw: 17.4;                       /* chiều rộng người (% khung) */
+    --pw: 17.4;
     position: relative;
-    width: 100%;
+    height: 96vh;
+    max-width: 100%;
     aspect-ratio: 16 / 9;
+    margin: 0 auto;
     overflow: hidden;
     border: 12px solid var(--wood-dark);
     border-radius: 6px;
@@ -72,7 +76,7 @@ def get_shoji_html(question: str = "", answer: str = "") -> str:
     padding: 5% 5% 4% 6%;
     overflow-y: auto;
     color: var(--ink);
-    font-family: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", Georgia, serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif !important;
     font-size: clamp(13px, 1.6vw, 17px);
     line-height: 1.75;
     transition: opacity .5s;
