@@ -1,7 +1,7 @@
 """Bước 1: làm sạch dữ liệu.
 Đọc file gốc (Vietnam_Housing_Data_10000.xlsx) và lưu kết quả vào:
-  - File CSV: data/housing_clean.csv (chuẩn dùng cho huấn luyện mô hình ML)
-  - File Excel tương tự: data/Vietnam_Housing_Data_10000_clean.xlsx (file Excel tương tự file gốc nhưng đã sạch 100%)
+  - File CSV: data/housing_clean.csv (chuẩn dùng cho huấn luyện mô hình ML & tìm kiếm)
+  - File Excel tương tự: data/Vietnam_Housing_Data_10000_clean.xlsx
 File gốc không bị thay đổi. Chạy: python 01_clean_data.py
 """
 
@@ -60,12 +60,10 @@ if lacking:
     raise SystemExit(f"File gốc thiếu các cột: {lacking}")
 df = df[needed]
 
-
 def keep_rows(df, keep, reason):
     """Giữ lại các dòng thỏa điều kiện và in số dòng bị loại."""
     print(f"- {reason}: loại {int((~keep).sum())} dòng")
     return df[keep].copy()
-
 
 print("\nCác bước làm sạch:")
 
@@ -80,12 +78,12 @@ for col in df.columns:
 df = keep_rows(df, ~df["House_ID"].duplicated(), "Trùng mã nhà")
 df = keep_rows(df, ~df.drop(columns="House_ID").duplicated(), "Trùng toàn bộ nội dung")
 
-# 4) Giá trị thiếu: chỉ in thống kê rồi xóa các dòng có ô thiếu (tỷ lệ rất nhỏ: ~2.86%)
+# 4) Giá trị thiếu
 missing = df.isna().sum()
 print("  Số ô thiếu theo cột:", missing[missing > 0].to_dict() or "không có")
 df = keep_rows(df, ~df.isna().any(axis=1), "Có giá trị thiếu")
 
-# 5) Giá trị không hợp lệ (âm, bằng 0 hoặc ngoài danh sách cho phép)
+# 5) Giá trị không hợp lệ
 valid = (
     (df[TARGET] > 0) & (df["Price_Per_m2"] > 0)
     & (df["Land_Area"] > 0) & (df["Floor_Area"] > 0) & (df["Frontage"] > 0)
@@ -99,7 +97,7 @@ for col, order in ORDINAL_ORDER.items():
         valid &= df[col].isin(order)
 df = keep_rows(df, valid, "Giá trị không hợp lệ")
 
-# 6) Ép kiểu: cột True/False về kiểu bool, cột ngày về datetime
+# 6) Ép kiểu
 for col in BOOL_COLS:
     if col in df.columns:
         df[col] = df[col].astype(bool)
@@ -107,13 +105,12 @@ for col in BOOL_COLS:
 if "Sale_Date" in df.columns:
     df["Sale_Date"] = pd.to_datetime(df["Sale_Date"])
 
-# Không xóa outlier về giá: đó là các tin hợp lệ (nhà lớn, biệt thự đắt tiền)
 print(f"\nGiá thấp nhất {df[TARGET].min():.2f} tỷ, cao nhất {df[TARGET].max():.2f} tỷ (giữ nguyên, không xóa)")
 
 # 7) Tạo thư mục đầu ra và xuất kết quả
 DATA_DIR.mkdir(exist_ok=True, parents=True)
 
-# 7.1. Xuất file CSV sạch (UTF-8-SIG)
+# 7.1. Xuất file CSV sạch 
 df.to_csv(CLEAN_FILE, index=False, encoding="utf-8-sig")
 print(f"Đã lưu {len(df)} dòng, {df.shape[1]} cột vào {CLEAN_FILE}")
 

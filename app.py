@@ -19,7 +19,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from agent import run_agent_turn, DEFAULT_MODEL
-from data import load_clean_data, get_trained_models
+from data import load_listing_data, get_trained_models
 from tools import get_market_statistics, segment_house
 from shoji_view import get_shoji_html
 from scroll_view import get_scroll_styles, get_single_scroll_html, SCROLL_ITEMS
@@ -484,6 +484,29 @@ st.markdown(
         position: relative !important;
         z-index: 999999 !important;
     }}
+
+    /* 1. Sửa màu chữ Top 3 khu vực đắt nhất trong Sidebar thành màu trắng rõ nét */
+    [data-testid="stSidebar"] li, 
+    [data-testid="stSidebar"] span, 
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] div {{
+        color: #FFFFFF !important;
+    }}
+
+    /* 2. Sửa khung Expander / Lịch sử trò chuyện thành nền tối sang trọng, chữ sáng rõ */
+    div[data-testid="stExpander"] {{
+        background: rgba(11, 19, 43, 0.85) !important;
+        border: 1px solid rgba(56, 189, 248, 0.4) !important;
+        border-radius: 8px !important;
+    }}
+    
+    div[data-testid="stExpander"] p, 
+    div[data-testid="stExpander"] span, 
+    div[data-testid="stExpander"] li, 
+    div[data-testid="stExpander"] div {{
+        color: #F1F5F9 !important;
+    }}
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -568,7 +591,7 @@ with st.sidebar:
     # Bảng chỉ số thị trường nhanh
     st.markdown("### 📊 Chỉ Số Thị Trường")
     try:
-        df_side = load_clean_data()
+        df_side = load_listing_data()
         sb_c1, sb_c2 = st.columns(2)
         with sb_c1:
             st.metric("Giao dịch", f"{len(df_side):,}")
@@ -797,7 +820,7 @@ with main_tab:
 
     # 2. LĂNG KÍNH ĐÔ THỊ (URBAN LENS)
     st.markdown("#### 🏙️ Lăng Kính Đô Thị (Urban Market Lens)")
-    df_clean = load_clean_data()
+    df_clean = load_listing_data()
     all_provinces = sorted(df_clean["Province"].unique().tolist())
 
     c_select_col, c_stat_col = st.columns([1, 2])
@@ -837,9 +860,9 @@ with main_tab:
 # ==============================================================================
 with explore_tab:
     st.markdown('<div class="hero-title" style="font-size: 2.2rem;">Toàn Cảnh Thị Trường Bất Động Sản</div>', unsafe_allow_html=True)
-    st.markdown('<div class="hero-subtitle">Bản đồ số liệu trực quan trích xuất từ 9,714 giao dịch sạch trên toàn quốc (Việt Nam).</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero-subtitle">Bản đồ số liệu trực quan trích xuất từ 9,714 giao dịch bất động sản toàn quốc...</div>', unsafe_allow_html=True)
 
-    df_exp = load_clean_data()
+    df_exp = load_listing_data()
 
     # Bảng 4 KPI vĩ mô
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
@@ -986,7 +1009,7 @@ with settings_tab:
 
         # MANG GOOGLE GEMINI 2.0 LÊN MẶC ĐỊNH CHO TOOL CALLING HOÀN HẢO NHẤT
         model_list = [
-            "google/gemini-2.0-flash-lite:free",
+            "gemini-3.5-flash-lite",
             "meta-llama/llama-3.3-70b-instruct:free",
             "openrouter/free",
             "deepseek/deepseek-r1:free",
