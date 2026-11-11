@@ -73,16 +73,22 @@ plt.xlabel("Tỷ lệ giá trị thiếu (%)")
 plt.title("Tỷ lệ giá trị thiếu theo từng cột (file gốc)")
 save("01_missing_values.png")
 
-# ---- 2. Histogram giá và log giá ----
-fig, axes = plt.subplots(1, 2, figsize=(11, 4))
-axes[0].hist(df[TARGET], bins=50, color="#2f6db5", edgecolor="white", linewidth=0.5)
+# ---- 2. Histogram giá và log giá (Đã cải tiến hiển thị đuôi dài) ----
+fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
+
+# Biểu đồ 1: Phân phối giá gốc
+axes[0].hist(df[TARGET], bins=60, color="#2f6db5", edgecolor="white", linewidth=0.5)
 axes[0].set_title(f"Giá nhà (độ lệch = {df[TARGET].skew():.2f})")
 axes[0].set_xlabel("Giá (tỷ đồng)")
-axes[0].set_ylabel("Số căn nhà")
+axes[0].set_ylabel("Số căn nhà (Thang đo Log)")
+axes[0].set_yscale("log")  # <-- ĐÂY LÀ CHÌA KHÓA: Chuyển trục Y sang thang log để thấy rõ nhà 40-100 tỷ
 
-axes[1].hist(df["Log_Price"], bins=50, color="#3c9d6b", edgecolor="white", linewidth=0.5)
+# Biểu đồ 2: Phân phối sau khi biến đổi Log
+axes[1].hist(df["Log_Price"], bins=60, color="#3c9d6b", edgecolor="white", linewidth=0.5)
 axes[1].set_title(f"Log giá (độ lệch = {df['Log_Price'].skew():.2f})")
 axes[1].set_xlabel("log(giá, tỷ đồng)")
+axes[1].set_ylabel("Số căn nhà")
+
 save("02_price_histograms.png")
 
 # ---- 3. Tương quan của từng cột số với log giá ----

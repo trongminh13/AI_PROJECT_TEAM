@@ -123,7 +123,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "segment_house",
-            "description": "Xác định phân khúc căn nhà (Bình dân / Trung cấp / Cao cấp / Hạng sang) dựa trên giá bán và diện tích đất sử dụng thuật toán K-Means.",
+            "description": "Xác định phân khúc căn nhà (Bình dân / Trung cấp / Cao cấp / Hạng sang) tại một tỉnh/thành cụ thể.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -135,8 +135,12 @@ TOOL_SCHEMAS = [
                         "type": "number",
                         "description": "Diện tích đất (m², ví dụ 60, 80, 150)",
                     },
+                    "province": {
+                        "type": "string",
+                        "description": "Tỉnh/Thành phố (ví dụ: Hà Nội, Đà Nẵng).",
+                    },
                 },
-                "required": ["price_billion_vnd"],
+                "required": ["price_billion_vnd", "land_area_m2", "province"],
             },
         },
     },
@@ -363,7 +367,7 @@ def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
                     area = n
                 else:
                     price = n
-        res = TOOL_CATALOG["segment_house"](price_billion_vnd=price, land_area_m2=area)
+        res = TOOL_CATALOG["segment_house"](price_billion_vnd=price, land_area_m2=area, province="Hà Nội")
         tool_logs.append({"tool_name": "segment_house", "arguments": {"price_billion_vnd": price, "land_area_m2": area}, "result": res})
         ans = f"### Phân Khúc Bất Động Sản Việt Nam (K-Means Clustering):\n"
         ans += f"- **Phân khúc:** {res['segment_name']}\n"

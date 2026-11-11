@@ -493,18 +493,35 @@ st.markdown(
         color: #FFFFFF !important;
     }}
 
-    /* 2. Sửa khung Expander / Lịch sử trò chuyện thành nền tối sang trọng, chữ sáng rõ */
+    /* 2. Sửa khung Expander / Lịch sử trò chuyện thành nền tối sang trọng */
     div[data-testid="stExpander"] {{
         background: rgba(11, 19, 43, 0.85) !important;
         border: 1px solid rgba(56, 189, 248, 0.4) !important;
         border-radius: 8px !important;
     }}
     
+    /* Chữ bên NGOÀI (Tiêu đề, Bạn:, Chi tiết công cụ) -> Màu trắng sáng */
     div[data-testid="stExpander"] p, 
     div[data-testid="stExpander"] span, 
     div[data-testid="stExpander"] li, 
-    div[data-testid="stExpander"] div {{
+    div[data-testid="stExpander"] div,
+    div[data-testid="stExpander"] h1,
+    div[data-testid="stExpander"] h2,
+    div[data-testid="stExpander"] h3,
+    div[data-testid="stExpander"] h4,
+    div[data-testid="stExpander"] h5 {{
         color: #F1F5F9 !important;
+    }}
+
+    /* ĐÈ LẠI: Chữ bên TRONG ô thông báo màu sáng (st.info) -> Màu đen sắc nét */
+    div[data-testid="stExpander"] [data-testid="stAlert"] p,
+    div[data-testid="stExpander"] [data-testid="stAlert"] span,
+    div[data-testid="stExpander"] [data-testid="stAlert"] div,
+    div[data-testid="stExpander"] [data-testid="stAlert"] strong,
+    div[data-testid="stExpander"] [data-testid="stAlert"] li,
+    div[data-testid="stExpander"] [data-testid="stAlert"] ul,
+    div[data-testid="stExpander"] [data-testid="stAlert"] ol {{
+        color: #0F172A !important; 
     }}
 
     </style>

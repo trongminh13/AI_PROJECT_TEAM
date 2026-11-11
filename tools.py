@@ -222,42 +222,69 @@ def get_market_statistics(province: str = None) -> dict:
         return {"status": "error", "message": f"Lỗi thống kê: {str(e)}"}
 
 
-def segment_house(price_billion_vnd: float, land_area_m2: float = 80.0) -> dict:
+def segment_house(price_billion_vnd: float, land_area_m2: float, province: str) -> dict:
     """
     Xác định phân khúc căn nhà (Bình dân / Trung cấp / Cao cấp / Hạng sang)
-    dựa trên thuật toán K-Means (k=4) — phù hợp với thị trường Việt Nam.
+    dựa trên thuật toán K-Means (k=4) bằng phân cụm cục bộ (Local Clustering).
     """
+    from sklearn.cluster import KMeans
+    from sklearn.preprocessing import StandardScaler
     try:
-        _, (kmeans, mapping), km_scaler, _, _, _ = get_trained_models()
+        df = load_clean_data()
+        
+        # 1. Lọc tập dữ liệu theo tỉnh thành
+        df_local = df[df['Province'].str.contains(province, case=False, na=False)].copy()
+        
+        # Fallback: Nếu tỉnh lạ hoặc quá ít dữ liệu, lấy dữ liệu toàn quốc
+        if len(df_local) < 15:
+            df_local = df.copy()
+            province_analyzed = "Toàn quốc (Mặc định)"
+        else:
+            province_analyzed = df_local['Province'].iloc[0]
 
-        log_input = pd.DataFrame(
-            [[np.log1p(float(price_billion_vnd)), np.log1p(float(land_area_m2))]],
-            columns=["Price_Billion_VND", "Land_Area"],
-        )
-        scaled_input = km_scaler.transform(log_input)
-        raw_cluster = kmeans.predict(scaled_input)[0]
-        mapped_segment = mapping[raw_cluster]
+        # 2. Tiền xử lý
+        X_local = df_local[['Price_Billion_VND', 'Land_Area']].copy()
+        X_log = np.log1p(X_local)
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X_log)
+        
+        # 3. K-Means
+        kmeans = KMeans(n_clusters=4, n_init=15, random_state=42)
+        df_local['Raw_Cluster'] = kmeans.fit_predict(X_scaled)
+        
+        # 4. Gom nhãn theo thứ bậc giá
+        cluster_prices = df_local.groupby('Raw_Cluster')['Price_Billion_VND'].mean().sort_values()
+        cluster_mapping = {old: new for new, old in enumerate(cluster_prices.index)}
+        
+        # 5. Phân loại căn nhà đầu vào
+        input_data = pd.DataFrame([[np.log1p(float(price_billion_vnd)), np.log1p(float(land_area_m2))]],
+                                  columns=['Price_Billion_VND', 'Land_Area'])
+        input_scaled = scaler.transform(input_data)
+        raw_pred = kmeans.predict(input_scaled)[0]
+        final_segment = cluster_mapping[raw_pred]
 
         segment_names = {
             0: "Bình dân (Starter)",
             1: "Trung cấp (Mid-tier)",
             2: "Cao cấp (Premium)",
-            3: "Hạng sang (Luxury)",
+            3: "Hạng sang (Luxury)"
         }
+        
         segment_desc = {
-            0: "Mức giá dưới 2 tỷ VNĐ. Phù hợp cho người mua nhà lần đầu, nhà ở xã hội hoặc khu vực ngoại tỉnh.",
-            1: "Mức giá từ 2–5 tỷ VNĐ. Phân khúc nhà ở gia đình phổ biến nhất tại các tỉnh/thành loại 2.",
-            2: "Mức giá từ 5–15 tỷ VNĐ. Nhà phố, chung cư cao cấp tại các đô thị lớn (Hà Nội, TP.HCM, Đà Nẵng).",
-            3: "Mức giá trên 15 tỷ VNĐ. Biệt thự, penthouse, dự án cao cấp như Vinhomes, Sun Group.",
+            0: f"Mức giá rẻ nhất tại {province_analyzed}. Phù hợp cho nhà ở xã hội, ngõ nhỏ.",
+            1: f"Phân khúc phổ biến nhất tại {province_analyzed}. Nhà ở gia đình trung lưu.",
+            2: f"Phân khúc giá cao tại {province_analyzed}. Chung cư cao cấp, nhà mặt phố nhỏ.",
+            3: f"Mức giá đắt đỏ nhất tại {province_analyzed}. Biệt thự, dự án hạng sang."
         }
 
         return {
             "status": "success",
-            "segment_id": int(mapped_segment),
-            "segment_name": segment_names[mapped_segment],
+            "province_analyzed": province_analyzed,
+            "segment_name": segment_names[final_segment],
             "price_analyzed": f"{float(price_billion_vnd):.2f} tỷ VNĐ",
             "area_analyzed": f"{float(land_area_m2):.0f} m²",
-            "market_profile": segment_desc[mapped_segment],
+            "market_profile": segment_desc[final_segment],
+            "local_average_price_for_segment": f"{cluster_prices.iloc[final_segment]:.2f} tỷ VNĐ"
         }
     except Exception as e:
         return {"status": "error", "message": f"Lỗi phân khúc: {str(e)}"}
