@@ -38,7 +38,7 @@ SCROLL_ITEMS = [
         "title": "🌸 Tìm nhà Đà Nẵng ~3 tỷ",
         "subtitle": "Lọc nhà phù hợp ngân sách",
         "seal": "居",
-        "prompt": "Tìm giúp tôi các căn nhà có giá khoảng 3 tỷ VNĐ tại Đà Nẵng?"
+        "prompt": "Tìm giúp tôi các căn nhà có giá khoảng 3 tỷ VNĐ, diện tích 80m2 tại Đà Nẵng?"
     }
 ]
 
@@ -415,28 +415,22 @@ def get_scroll_styles() -> str:
   }
 
   /* ================= HOVER TRIGGER KHI RÊ CHUỘT VÀO CONTAINER ================= */
-  div[data-testid="stVerticalBlock"]:has(> div.element-container .scroll-item-box):hover .scroll {
-    transform: translateY(-2px);
-  }
-  div[data-testid="stVerticalBlock"]:has(> div.element-container .scroll-item-box):hover .paper {
+ .scroll-item-box .paper {
     width: var(--open) !important;
   }
-  div[data-testid="stVerticalBlock"]:has(> div.element-container .scroll-item-box):hover .bundle {
+  .scroll-item-box .bundle {
     width: var(--rod) !important;
   }
-  div[data-testid="stVerticalBlock"]:has(> div.element-container .scroll-item-box):hover .roll-paper {
-    opacity: 0 !important;
-    transition: opacity .4s ease 0.55s !important;
-  }
-  div[data-testid="stVerticalBlock"]:has(> div.element-container .scroll-item-box):hover .roll-label {
-    opacity: 0 !important;
-    transform: translate(-50%, -50%) scale(0.6) !important;
-  }
-  div[data-testid="stVerticalBlock"]:has(> div.element-container .scroll-item-box):hover .tie {
-    transform: translateY(18px) rotate(6deg) !important;
+  .scroll-item-box .roll-paper {
     opacity: 0 !important;
   }
-  div[data-testid="stVerticalBlock"]:has(> div.element-container .scroll-item-box):hover .paper-content {
+  .scroll-item-box .roll-label {
+    opacity: 0 !important;
+  }
+  .scroll-item-box .tie {
+    opacity: 0 !important;
+  }
+  .scroll-item-box .paper-content {
     opacity: 1 !important;
     transform: translateX(0) !important;
   }

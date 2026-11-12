@@ -26,19 +26,7 @@ plt.rcParams["font.sans-serif"] = ["Segoe UI", "Arial", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False  # Hiển thị đúng dấu trừ số âm
 
 # Import cấu hình từ common.py (hoặc tự fallback nếu chạy độc lập)
-try:
-    from common import CHART_DIR, CLEAN_FILE, NUMERIC_COLS, RAW_FILE, TARGET
-except ImportError:
-    DATA_DIR = CURRENT_DIR / "data"
-    CHART_DIR = CURRENT_DIR / "eda_charts"
-    RAW_FILE = DATA_DIR / "Vietnam_Housing_Data_10000.xlsx" if (DATA_DIR / "Vietnam_Housing_Data_10000.xlsx").exists() else CURRENT_DIR / "Vietnam_Housing_Data_10000.xlsx"
-    CLEAN_FILE = DATA_DIR / "housing_clean.csv" if (DATA_DIR / "housing_clean.csv").exists() else CURRENT_DIR / "housing_clean.csv"
-    TARGET = "Price_Billion_VND"
-    NUMERIC_COLS = [
-        "Distance_To_Center", "Land_Area", "Floor_Area", "Floors", "Bedrooms",
-        "Bathrooms", "House_Age", "Frontage", "Road_Width", "Distance_To_School",
-        "Distance_To_Hospital", "Distance_To_Market"
-    ]
+from common import CHART_DIR, CLEAN_FILE, NUMERIC_COLS, RAW_FILE, TARGET
 
 # Đảm bảo thư mục lưu biểu đồ tồn tại
 CHART_DIR.mkdir(exist_ok=True, parents=True)
@@ -49,7 +37,7 @@ raw = pd.read_excel(RAW_FILE, engine="openpyxl")  # file gốc, để vẽ biể
 
 print(f"- File sạch: {CLEAN_FILE}")
 df = pd.read_csv(CLEAN_FILE, encoding="utf-8-sig")
-df["Log_Price"] = np.log(df[TARGET])
+df["Log_Price"] = np.log1p(df[TARGET])
 
 
 def save(filename):
@@ -85,8 +73,8 @@ axes[0].set_yscale("log")  # <-- ĐÂY LÀ CHÌA KHÓA: Chuyển trục Y sang t
 
 # Biểu đồ 2: Phân phối sau khi biến đổi Log
 axes[1].hist(df["Log_Price"], bins=60, color="#3c9d6b", edgecolor="white", linewidth=0.5)
-axes[1].set_title(f"Log giá (độ lệch = {df['Log_Price'].skew():.2f})")
-axes[1].set_xlabel("log(giá, tỷ đồng)")
+axes[1].set_title(f"Log(1 + giá) (độ lệch = {df['Log_Price'].skew():.2f})")
+axes[1].set_xlabel("log(1 + giá, tỷ đồng)")
 axes[1].set_ylabel("Số căn nhà")
 
 save("02_price_histograms.png")
@@ -100,7 +88,7 @@ for i, v in enumerate(corr.values):
              ha="left" if v >= 0 else "right", fontsize=9)
 plt.axvline(0, color="black", linewidth=0.8)
 plt.xlim(-0.6, 1.0)
-plt.xlabel("Hệ số tương quan Pearson với log giá")
+plt.xlabel("Hệ số tương quan Pearson với log(1 + giá)")
 plt.title("Tương quan giữa các cột số và log giá")
 save("03_correlation_with_log_price.png")
 
@@ -126,7 +114,7 @@ def boxplot_by(column, title, filename):
     plt.figure(figsize=(8.5, 5))
     plt.boxplot(groups)
     plt.xticks(range(1, len(groups) + 1), [f"{g}\n(trung vị {m:.1f} tỷ)" for g, m in medians.items()])
-    plt.ylabel("log(giá, tỷ đồng)")
+    plt.ylabel("log(1 + giá, tỷ đồng)")
     plt.title(title)
     save(filename)
 
