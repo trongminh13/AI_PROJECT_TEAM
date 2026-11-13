@@ -19,6 +19,9 @@ def get_shoji_html(question: str = "", answer: str = "") -> str:
 
     return f"""<!DOCTYPE html>
 <html lang="vi">
+
+  <!-- THÊM DÒNG NÀY ĐỂ RENDER LATEX TỰ ĐỘNG -->
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
