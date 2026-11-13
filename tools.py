@@ -128,8 +128,9 @@ def predict_house_price(
 
         # Khoảng giá 80%: phân vị 10-90 của sai số trên tập kiểm tra (thay cho ±12% cố định)
         report = get_model_report()
-        lower_bound = float(np.expm1(pred_log + report["q10"]))
-        upper_bound = float(np.expm1(pred_log + report["q90"]))
+        # Áp dụng biên độ ±10% đơn giản dễ hiểu
+        lower_bound = estimated_price * 0.90
+        upper_bound = estimated_price * 1.10
         price_per_m2 = (estimated_price * 1000) / float(land_area) if land_area > 0 else 0.0  # Triệu/m²
 
         return {

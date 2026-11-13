@@ -4,7 +4,7 @@ Giao diện Web Streamlit cho HouseAssist - AI Real Estate Advisor & Analytics A
 Thiết kế theo chuẩn mực Cao cấp, Thơ mộng & Sang trọng (Poetic Atmospheric Luxury):
 - Nút bấm góc vuông sắc sảo (border-radius: 0px), phóng to nhẹ khi hover kèm viền xanh lam chuyển động loop neon.
 - Cấu hình LLM & API được tách biệt gọn gàng vào Tab Cài Đặt (Settings).
-- Luồng cuộn trang dọc (Vertical Scroll Flow): Khám phá thị trường 3 phân khúc K-Means, Lăng kính đô thị và Biểu đồ định giá.
+- Luồng cuộn trang dọc (Vertical Scroll Flow): Khám phá thị trường 4 phân khúc K-Means, Lăng kính đô thị và Biểu đồ định giá.
 """
 
 import os

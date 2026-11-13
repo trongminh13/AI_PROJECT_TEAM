@@ -50,6 +50,7 @@ Nhiệm vụ và Quy tắc ứng xử:
 5. Nếu công cụ báo không nhận diện được tỉnh/thành, hãy hỏi lại khách, KHÔNG tự đổi sang tỉnh khác.
 6. Khi báo giá dự đoán, nêu rõ đây là khoảng ước tính tham khảo (sai số trung bình khoảng 21%).
 7. Trả lời bằng tiếng Việt chuyên nghiệp, định dạng số tiền rõ ràng (Tỷ VNĐ / triệu/m²), kèm nhận xét thực tế.
+8. TUYỆT ĐỐI KHÔNG sử dụng định dạng toán học LaTeX (không dùng ký hiệu $ hay $$). Nếu cần viết công thức, hãy viết bằng văn bản thuần túy (Ví dụ: PV = FV / (1 + i)^n).
 
 Đơn vị chuẩn:
 - Giá: Tỷ VNĐ (tỷ đồng). Ví dụ: 3.5 tỷ VNĐ.
@@ -274,16 +275,16 @@ def run_agent_turn(
             if not msg.tool_calls:
                 return msg.content or "Tôi có thể hỗ trợ gì thêm về thị trường bất động sản Việt Nam?", tool_logs
 
+            # --- BẮT ĐẦU ĐOẠN SỬA LỖI 400 GEMINI (THOUGHT_SIGNATURE) ---
+            assistant_msg = msg.model_dump(exclude_unset=True)
+            if getattr(msg, "model_extra", None):
+                assistant_msg.update(msg.model_extra) # Bơm lại thought_signature vào
+            
+            full_messages.append(assistant_msg)
+            # --- KẾT THÚC ĐOẠN SỬA LỖI ---
+            
             # Ghi lại yêu cầu gọi công cụ (dạng dict chuẩn OpenAI để mọi nhà cung cấp đều nhận)
-            full_messages.append({
-                "role": "assistant",
-                "content": msg.content or "",
-                "tool_calls": [
-                    {"id": tc.id, "type": "function",
-                     "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                    for tc in msg.tool_calls
-                ],
-            })
+
             for tc in msg.tool_calls:
                 try:
                     fn_args = json.loads(tc.function.arguments or "{}")
@@ -303,6 +304,10 @@ def run_agent_turn(
         return final.choices[0].message.content or "", tool_logs
 
     except Exception as e:
+        print("\n--- CHI TIẾT LỖI 400 ---")
+        print(repr(e))  # In ra thông báo lỗi gốc từ Google
+        print("------------------------\n")
+        # (Giữ nguyên phần code gọi hàm Fallback bên dưới)
         fallback_ans, fallback_tools = _run_heuristic_fallback(messages[-1]["content"])
         note = f"\n\n*(Lưu ý: đã chuyển sang chế độ phân tích ngoại tuyến vì kết nối {provider['label']} gặp lỗi: {str(e)[:100]})*"
         return fallback_ans + note, fallback_tools
@@ -407,7 +412,7 @@ def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
         s = res["input_summary"]
         ans = "### Ước tính giá (Random Forest)\n"
         ans += f"- **Giá dự đoán:** {res['estimated_price_formatted']}\n"
-        ans += f"- **Khoảng 80%:** {res['price_range_formatted']}\n- **Đơn giá:** {res['price_per_m2_formatted']}\n"
+        ans += f"- **Khoảng giá (±10%):** {res['price_range_formatted']}\n- **Đơn giá:** {res['price_per_m2_formatted']}\n"        
         ans += f"- **Căn nhà:** {s['property_type']} {s['land_area_m2']:.0f} m², {s['bedrooms']} PN, {s['bathrooms']:.0f} WC tại {s['province']}\n"
         ans += f"\n*{res['note']}*"
         return ans, tool_logs
