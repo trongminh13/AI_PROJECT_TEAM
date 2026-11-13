@@ -16,6 +16,10 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.neighbors import NearestNeighbors
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_absolute_error
+import re
+import unicodedata
 
 # Nguồn duy nhất cho toàn bộ ứng dụng
 DATA_FILE = os.path.join(os.path.dirname(__file__), "vietnam_housing_data", "data", "housing_clean.csv")
@@ -27,6 +31,81 @@ _cached_kmeans_scaler = None
 _cached_nn_model = None
 _cached_nn_scaler = None
 _feature_importances = None
+
+# ---------------------------------------------------------------------------
+# HẰNG SỐ DÙNG CHUNG (một nguồn duy nhất cho app, tools, agent, 03_model_charts)
+# ---------------------------------------------------------------------------
+NUM_FEATURES = [
+    "Land_Area", "Floor_Area", "Floors", "Bedrooms", "Bathrooms",
+    "House_Age", "Frontage", "Road_Width", "Distance_To_Center",
+    "Distance_To_School", "Distance_To_Hospital", "Distance_To_Market",
+]
+CAT_FEATURES = ["Province", "Property_Type", "Location_Type"]
+
+FEATURE_LABELS = {
+    "Land_Area": "Diện tích đất", "Floor_Area": "Diện tích sàn", "Floors": "Số tầng",
+    "Bedrooms": "Phòng ngủ", "Bathrooms": "Phòng tắm", "House_Age": "Tuổi nhà",
+    "Frontage": "Mặt tiền", "Road_Width": "Đường rộng", "Distance_To_Center": "Cách trung tâm",
+    "Distance_To_School": "Cách trường", "Distance_To_Hospital": "Cách bệnh viện",
+    "Distance_To_Market": "Cách chợ", "Province": "Tỉnh/Thành", "Property_Type": "Loại nhà",
+    "Location_Type": "Loại khu vực",
+}
+
+# Phân khúc theo ngưỡng giá (tỷ VNĐ): ĐỊNH NGHĨA DUY NHẤT cho toàn dự án
+SEGMENT_BINS = [
+    ("Bình dân", 0.0, 2.0),
+    ("Trung cấp", 2.0, 5.0),
+    ("Cao cấp", 5.0, 15.0),
+    ("Hạng sang", 15.0, float("inf")),
+]
+
+def classify_segment(price_billion: float) -> str:
+    """Trả về tên phân khúc theo ngưỡng giá: <2, 2-5, 5-15, >15 tỷ."""
+    for name, lo, hi in SEGMENT_BINS:
+        if lo <= price_billion < hi:
+            return name
+    return SEGMENT_BINS[-1][0]
+
+# ---------------------------------------------------------------------------
+# CHUẨN HÓA TÊN TỈNH/THÀNH (không phân biệt hoa thường, dấu, "TP.")
+# ---------------------------------------------------------------------------
+PROVINCE_ALIASES = {
+    "hcm": "TP. Hồ Chí Minh", "tphcm": "TP. Hồ Chí Minh", "sai gon": "TP. Hồ Chí Minh",
+    "hn": "Hà Nội", "ha noi": "Hà Nội",
+}
+
+def normalize_text(s) -> str:
+    s = unicodedata.normalize("NFD", str(s).lower().replace("đ", "d"))
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = re.sub(r"[^a-z0-9]+", " ", s).strip()
+    return re.sub(r"^(tp|thanh pho) ", "", s)
+
+def match_province(name, provinces):
+    """Khớp tên tỉnh người dùng nhập với tên chuẩn trong dữ liệu. Không khớp -> None."""
+    n = normalize_text(name)
+    if not n:
+        return None
+    norm_map = {normalize_text(p): p for p in provinces}
+    if n in norm_map:
+        return norm_map[n]
+    alias = PROVINCE_ALIASES.get(n)
+    if alias in provinces:
+        return alias
+    if len(n) >= 4:
+        for key, p in norm_map.items():
+            if n in key or key in n:
+                return p
+    return None
+
+def find_province_in_text(text, provinces):
+    """Tìm tên tỉnh/thành xuất hiện trong một câu hỏi tự do (dùng cho chế độ offline)."""
+    t = f" {normalize_text(text)} "
+    cands = {normalize_text(p): p for p in provinces}
+    cands.update({k: v for k, v in PROVINCE_ALIASES.items() if v in provinces})
+    for key in sorted(cands, key=len, reverse=True):
+        if f" {key} " in t:
+            return cands[key]
+    return None
 
 def load_clean_data() -> pd.DataFrame:
     """Đọc và làm sạch dữ liệu nhà ở Việt Nam từ file CSV đã được chuẩn hóa."""
@@ -52,14 +131,8 @@ def load_clean_data() -> pd.DataFrame:
     df["log_land_area"] = np.log1p(df["Land_Area"])
     df["log_floor_area"] = np.log1p(df["Floor_Area"])
     df["log_price"] = np.log1p(df["Price_Billion_VND"])
-    if "price_per_m2" not in df.columns:
-        df["price_per_m2"] = df["Price_Billion_VND"] * 1000 / df["Land_Area"]
-
-    # Xử lý missing value
-    df["Province"] = df["Province"].fillna("Không xác định")
-    df["District"] = df["District"].fillna("Không xác định")
-    df["Property_Type"] = df["Property_Type"].fillna("Nhà ở")
-    df["Location_Type"] = df["Location_Type"].fillna("Ven trung tâm")
+    # Đơn giá (triệu/m²) = giá * 1000 / diện tích đất; dùng lại cột gốc Price_Per_m2 nếu có
+    df["price_per_m2"] = df["Price_Per_m2"] if "Price_Per_m2" in df.columns else df["Price_Billion_VND"] * 1000 / df["Land_Area"]
 
     _cached_data = df
     return _cached_data.copy()
@@ -70,6 +143,44 @@ def load_listing_data() -> pd.DataFrame:
     Giúp giao diện app.py và tools.py không bị lỗi khi chuyển từ kiến trúc 2 file sang 1 file.
     """
     return load_clean_data()
+
+_model_report = {}
+
+def build_regressor() -> Pipeline:
+    """Pipeline Random Forest dùng chung cho app và 03_model_charts.py (một cấu hình duy nhất)."""
+    preprocessor = ColumnTransformer([
+        ("num", StandardScaler(), NUM_FEATURES),
+        ("cat", OneHotEncoder(handle_unknown="ignore"), CAT_FEATURES),
+    ])
+    return Pipeline([
+        ("prep", preprocessor),
+        ("rf", RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=4,
+                                     min_samples_split=10, max_features=0.8, random_state=42, n_jobs=-1)),
+    ])
+
+def get_model_report() -> dict:
+    """Chỉ số đánh giá trên tập kiểm tra (R² trên log giá, MAPE %, phân vị 10/90 của sai số log)."""
+    get_trained_models()
+    return dict(_model_report)
+
+def segment_table() -> list:
+    """Thống kê thật của 4 phân khúc theo ngưỡng giá (dùng cho thẻ phân khúc và công cụ)."""
+    df = load_clean_data()
+    out = []
+    for name, lo, hi in SEGMENT_BINS:
+        part = df[(df["Price_Billion_VND"] >= lo) & (df["Price_Billion_VND"] < hi)]
+        top_type = part["Property_Type"].value_counts()
+        out.append({
+            "name": name, "min": lo, "max": hi, "count": int(len(part)),
+            "share_pct": round(len(part) / len(df) * 100, 1),
+            "median_price": round(float(part["Price_Billion_VND"].median()), 2),
+            "mean_land_area": round(float(part["Land_Area"].mean()), 0),
+            "median_bedrooms": int(part["Bedrooms"].median()),
+            "median_floors": int(part["Floors"].median()),
+            "top_property_type": str(top_type.index[0]),
+            "top_property_share_pct": round(float(top_type.iloc[0] / len(part) * 100), 0),
+        })
+    return out
 
 def get_trained_models():
     """Khởi tạo và huấn luyện các mô hình ML (chạy một lần và cache vào bộ nhớ)."""
@@ -89,34 +200,40 @@ def get_trained_models():
     df = load_clean_data()
 
     # --- 1. RANDOM FOREST REGRESSION: DỰ ĐOÁN GIÁ (Tỷ VNĐ) ---
-    num_features = [
-        "Land_Area", "Floor_Area", "Floors", "Bedrooms", "Bathrooms",
-        "House_Age", "Frontage", "Road_Width", "Distance_To_Center",
-        "Distance_To_School", "Distance_To_Hospital", "Distance_To_Market",
-    ]
-    cat_features = ["Province", "Property_Type", "Location_Type"]
-
-    preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), num_features),
-        ("cat", OneHotEncoder(handle_unknown="ignore"), cat_features),
-    ])
-
-    reg_pipeline = Pipeline([
-        ("prep", preprocessor),
-        ("rf", RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=4, min_samples_split=10, max_features=0.8, random_state=42, n_jobs=-1)),
-    ])
-
+    num_features, cat_features = NUM_FEATURES, CAT_FEATURES
     X = df[num_features + cat_features]
     y_log = df["log_price"]
-    reg_pipeline.fit(X, y_log)
+
+    # 1a. Đánh giá trên tập kiểm tra 20% -> R², MAPE và phân vị sai số để tạo khoảng giá
+    X_tr, X_te, y_tr, y_te = train_test_split(X, y_log, test_size=0.2, random_state=42)
+    eval_model = build_regressor().fit(X_tr, y_tr)
+    pred_te = eval_model.predict(X_te)
+    resid = y_te.values - pred_te
+    q10, q90 = np.quantile(resid, [0.1, 0.9])
+    actual_te, pred_price_te = np.expm1(y_te.values), np.expm1(pred_te)
+    _model_report.update({
+        "r2_log": float(r2_score(y_te, pred_te)),
+        "mae_log": float(mean_absolute_error(y_te, pred_te)),
+        "mape_pct": float(np.mean(np.abs(pred_price_te - actual_te) / actual_te) * 100),
+        "q10": float(q10), "q90": float(q90),
+        "n_train": int(len(X_tr)), "n_test": int(len(X_te)),
+    })
+
+    # 1b. Huấn luyện lại trên toàn bộ dữ liệu cho mô hình dùng trong ứng dụng
+    reg_pipeline = build_regressor().fit(X, y_log)
     _cached_reg_model = reg_pipeline
 
-    # Trích xuất Feature Importance
+    # Feature importance: GỘP các cột one-hot về biến gốc (Province_Hà Nội, ... -> Province)
     rf_step = reg_pipeline.named_steps["rf"]
     prep_step = reg_pipeline.named_steps["prep"]
     encoded_cat_names = prep_step.named_transformers_["cat"].get_feature_names_out(cat_features)
     all_feature_names = list(num_features) + list(encoded_cat_names)
-    _feature_importances = pd.Series(rf_step.feature_importances_, index=all_feature_names).sort_values(ascending=False)
+    raw_imp = pd.Series(rf_step.feature_importances_, index=all_feature_names)
+    grouped = {}
+    for name, val in raw_imp.items():
+        base = next((c for c in cat_features if name.startswith(c + "_")), name)
+        grouped[base] = grouped.get(base, 0.0) + float(val)
+    _feature_importances = pd.Series(grouped).sort_values(ascending=False)
 
     # --- 2. K-MEANS CLUSTERING: PHÂN KHÚC THỊ TRƯỜNG ---
     Z_log = np.log1p(df[["Price_Billion_VND", "Land_Area"]])

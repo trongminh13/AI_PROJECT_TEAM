@@ -10,15 +10,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
 from sklearn.neighbors import NearestNeighbors
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.preprocessing import StandardScaler
 
-from data import load_clean_data
+from data import load_clean_data, build_regressor, get_model_report, NUM_FEATURES, CAT_FEATURES
 
 plt.rcParams["font.sans-serif"] = ["Segoe UI", "Arial", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
@@ -36,63 +33,46 @@ def save(filename):
 df = load_clean_data()
 
 # =====================================================================
-# PHẦN 1: ĐÁNH GIÁ MÔ HÌNH RANDOM FOREST (SLIDE 8 & 9)
+# PHẦN 1: ĐÁNH GIÁ MÔ HÌNH RANDOM FOREST (cùng cấu hình với ứng dụng: data.build_regressor)
 # =====================================================================
 print("\n--- 1. ĐÁNH GIÁ HIỆU NĂNG RANDOM FOREST ---")
-num_features = ["Land_Area", "Floor_Area", "Floors", "Bedrooms", "Bathrooms", "Distance_To_Center"]
-cat_features = ["Province", "Property_Type", "Location_Type"]
-
-X = df[num_features + cat_features]
-y = df["log_price"] 
-
-preprocessor = ColumnTransformer([
-    ("num", StandardScaler(), num_features),
-    ("cat", OneHotEncoder(handle_unknown="ignore"), cat_features),
-])
-X_processed = preprocessor.fit_transform(X)
-X_train, X_test, y_train, y_test = train_test_split(X_processed, y, test_size=0.2, random_state=42)
-
-rf_model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
-rf_model.fit(X_train, y_train)
+X = df[NUM_FEATURES + CAT_FEATURES]
+y = df["log_price"]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+rf_model = build_regressor().fit(X_train, y_train)
 y_pred = rf_model.predict(X_test)
 
-r2 = r2_score(y_test, y_pred)
-mae = mean_absolute_error(y_test, y_pred)
-rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+report = get_model_report()  # cùng chia 80/20, random_state=42 -> trùng số liệu trong ứng dụng
+print(f"Mô hình: Random Forest Regressor ({len(NUM_FEATURES)} biến số + {len(CAT_FEATURES)} biến phân loại)")
+print(f"- R2 trên log giá : {report['r2_log']:.4f}")
+print(f"- MAE (log)        : {report['mae_log']:.4f}")
+print(f"- MAPE theo giá    : {report['mape_pct']:.1f}%")
 
-print(f"Mô hình: Random Forest Regressor")
-print(f"- R2 Score (Độ giải thích): {r2:.4f}")
-print(f"- MAE (Sai số tuyệt đối): {mae:.4f}")
-print(f"- RMSE (Sai số bình phương): {rmse:.4f}")
-
-# Vẽ biểu đồ Actual vs Predicted
 plt.figure(figsize=(7, 6))
 plt.scatter(y_test, y_pred, alpha=0.3, color="#2f6db5", s=10)
 plt.plot([y.min(), y.max()], [y.min(), y.max()], 'r--', lw=2)
-plt.xlabel("Giá trị thực tế (Log Price)")
-plt.ylabel("Giá trị dự đoán (Log Price)")
-plt.title("Random Forest: Thực tế vs. Dự đoán")
+plt.xlabel("Giá trị thực tế (log(1 + giá))")
+plt.ylabel("Giá trị dự đoán (log(1 + giá))")
+plt.title(f"Random Forest: Thực tế vs. Dự đoán (R² = {report['r2_log']:.3f}, MAPE ≈ {report['mape_pct']:.0f}%)")
 save("10_rf_actual_vs_predicted.png")
 
 # =====================================================================
 # PHẦN 2: K-MEANS CLUSTERING (SLIDE 10)
 # =====================================================================
-print("\n--- 2. CHẠY K-MEANS & VẼ ELBOW, PCA ---")
+print("\n--- 2. CHẠY K-MEANS & VẼ ELBOW ---")
 Z_log = np.log1p(df[["Price_Billion_VND", "Land_Area"]])
-scaler_km = StandardScaler()
-Z_scaled = scaler_km.fit_transform(Z_log)
+Z_scaled = StandardScaler().fit_transform(Z_log)
 
-wcss = []
 K_range = range(1, 11)
+wcss = []
 for k in K_range:
-    km = KMeans(n_clusters=k, n_init=10, random_state=42)
-    km.fit(Z_scaled)
+    km = KMeans(n_clusters=k, n_init=10, random_state=42).fit(Z_scaled)
     wcss.append(km.inertia_)
 
-plt.figure(figsize=(8, 5))
-plt.plot(K_range, wcss, marker='o', linestyle='-', color='#d9534f', lw=2)
-plt.axvline(x=4, color='black', linestyle='--', label='Điểm cùi chỏ (K=4)')
-plt.title("Phương pháp Elbow tìm số cụm K tối ưu")
+plt.figure(figsize=(7, 5))
+plt.plot(list(K_range), wcss, marker='o', color='#d9534f', lw=2)
+plt.axvline(x=4, color='black', linestyle='--', label='K = 4 (được chọn)')
+plt.title("Phương pháp Elbow: Tìm K tối ưu cho K-Means")
 plt.xlabel("Số lượng cụm (K)")
 plt.ylabel("WCSS (Tổng bình phương sai số)")
 plt.legend()
@@ -100,15 +80,45 @@ save("11_kmeans_elbow.png")
 
 kmeans_final = KMeans(n_clusters=4, n_init=15, random_state=42)
 clusters = kmeans_final.fit_predict(Z_scaled)
-pca = PCA(n_components=2)
-Z_pca = pca.fit_transform(Z_scaled)
+Z_pca = PCA(n_components=2).fit_transform(Z_scaled)
+
+# K-Means đánh số cụm NGẪU NHIÊN -> phải xếp hạng theo giá trung bình rồi mới gán nhãn
+mean_price = pd.Series(df["Price_Billion_VND"].values).groupby(clusters).mean().sort_values()
+rank_of = {cluster_id: rank for rank, cluster_id in enumerate(mean_price.index)}
+names = ['Bình dân', 'Trung cấp', 'Cao cấp', 'Hạng sang']
+colors = ['#3c9d6b', '#2f6db5', '#e0a030', '#d9534f']
+print("Cụm theo giá trung bình tăng dần:", {names[rank_of[c]]: round(p, 1) for c, p in mean_price.items()})
 
 plt.figure(figsize=(9, 6))
+for cluster_id in mean_price.index:
+    r = rank_of[cluster_id]
+    mask = clusters == cluster_id
+    plt.scatter(Z_pca[mask, 0], Z_pca[mask, 1], s=15, alpha=0.6, color=colors[r],
+                label=f"{names[r]} (n={mask.sum()}, giá TB {mean_price[cluster_id]:.1f} tỷ)")
+plt.title("Phân cụm thị trường BĐS bằng K-Means (theo giá + diện tích, trực quan hóa qua PCA)")
+plt.xlabel("Thành phần chính 1 (PCA 1)")
+plt.ylabel("Thành phần chính 2 (PCA 2)")
+plt.legend()
+save("12_kmeans_pca_clusters.png")
+
+kmeans_final = KMeans(n_clusters=4, n_init=15, random_state=42)
+clusters = kmeans_final.fit_predict(Z_scaled)
+Z_pca = PCA(n_components=2).fit_transform(Z_scaled)
+
+# K-Means đánh số cụm NGẪU NHIÊN -> phải xếp hạng theo giá trung bình rồi mới gán nhãn
+mean_price = pd.Series(df["Price_Billion_VND"].values).groupby(clusters).mean().sort_values()
+rank_of = {cluster_id: rank for rank, cluster_id in enumerate(mean_price.index)}
+names = ['Bình dân', 'Trung cấp', 'Cao cấp', 'Hạng sang']
 colors = ['#3c9d6b', '#2f6db5', '#e0a030', '#d9534f']
-labels = ['Bình dân', 'Trung cấp', 'Cao cấp', 'Hạng sang']
-for i in range(4):
-    plt.scatter(Z_pca[clusters == i, 0], Z_pca[clusters == i, 1], s=15, alpha=0.6, color=colors[i], label=labels[i])
-plt.title("Phân cụm thị trường BĐS bằng K-Means (Trực quan hóa qua PCA)")
+print("Cụm theo giá trung bình tăng dần:", {names[rank_of[c]]: round(p, 1) for c, p in mean_price.items()})
+
+plt.figure(figsize=(9, 6))
+for cluster_id in mean_price.index:
+    r = rank_of[cluster_id]
+    mask = clusters == cluster_id
+    plt.scatter(Z_pca[mask, 0], Z_pca[mask, 1], s=15, alpha=0.6, color=colors[r],
+                label=f"{names[r]} (n={mask.sum()}, giá TB {mean_price[cluster_id]:.1f} tỷ)")
+plt.title("Phân cụm thị trường BĐS bằng K-Means (theo giá + diện tích, trực quan hóa qua PCA)")
 plt.xlabel("Thành phần chính 1 (PCA 1)")
 plt.ylabel("Thành phần chính 2 (PCA 2)")
 plt.legend()
@@ -118,34 +128,33 @@ save("12_kmeans_pca_clusters.png")
 # PHẦN 3: K-NEAREST NEIGHBORS (SLIDE 11)
 # =====================================================================
 print("\n--- 3. MINH HỌA THUẬT TOÁN KNN ---")
-df_knn = df[(df['Province'] == 'Hà Nội')].copy()
+df_knn = df[df['Province'] == 'Hà Nội'].copy()
 X_knn_raw = df_knn[["Land_Area", "Price_Billion_VND"]]
 scaler_knn = StandardScaler()
 X_knn_scaled = scaler_knn.fit_transform(np.log1p(X_knn_raw))
 
-nn = NearestNeighbors(n_neighbors=4, metric="euclidean")
-nn.fit(X_knn_scaled)
+K_NEIGHBORS = 3
+nn = NearestNeighbors(n_neighbors=K_NEIGHBORS, metric="euclidean").fit(X_knn_scaled)
 
-target_raw = pd.DataFrame([{"Land_Area": 80.0, "Price_Billion_VND": 5.0}])
-target_scaled = scaler_knn.transform(np.log1p(target_raw))
-distances, indices = nn.kneighbors(target_scaled)
+TARGET_AREA, TARGET_PRICE = 80.0, 5.0
+target_raw = pd.DataFrame([{"Land_Area": TARGET_AREA, "Price_Billion_VND": TARGET_PRICE}])
+distances, indices = nn.kneighbors(scaler_knn.transform(np.log1p(target_raw)))
+
+# Điểm khách hàng là điểm GIẢ ĐỊNH (không có trong dữ liệu) -> lấy cả 3 láng giềng gần nhất, không bỏ cái nào
+neighbors_raw = X_knn_raw.iloc[indices[0]]
 
 plt.figure(figsize=(9, 6))
 plt.scatter(df_knn["Land_Area"], df_knn["Price_Billion_VND"], color='lightgray', alpha=0.5, s=20, label='Kho hàng thực tế (Hà Nội)')
-neighbors_idx = indices[0][1:]
-neighbors_raw = X_knn_raw.iloc[neighbors_idx]
-plt.scatter(neighbors_raw["Land_Area"], neighbors_raw["Price_Billion_VND"], color='#2f6db5', s=80, label='3 Căn Tương Đồng Nhất', edgecolors='black')
-plt.scatter(80, 5, color='#d9534f', marker='*', s=300, label='Yêu cầu khách hàng (80m2, 5 tỷ)', edgecolors='black')
-
-radius = distances[0][-1] * 50
-circle = plt.Circle((80, 5), radius=10, color='red', fill=False, linestyle='--', linewidth=1.5, alpha=0.7)
-plt.gca().add_patch(circle)
+for _, row in neighbors_raw.iterrows():
+    plt.plot([TARGET_AREA, row["Land_Area"]], [TARGET_PRICE, row["Price_Billion_VND"]], color='#d9534f', linestyle='--', linewidth=1, alpha=0.7)
+plt.scatter(neighbors_raw["Land_Area"], neighbors_raw["Price_Billion_VND"], color='#2f6db5', s=80, label=f'{K_NEIGHBORS} căn tương đồng nhất', edgecolors='black')
+plt.scatter(TARGET_AREA, TARGET_PRICE, color='#d9534f', marker='*', s=300, label=f'Yêu cầu khách hàng ({TARGET_AREA:.0f} m², {TARGET_PRICE:.0f} tỷ)', edgecolors='black')
 
 plt.xscale('log')
 plt.yscale('log')
 plt.title("Minh họa KNN: Tìm nhà tương đồng (Hà Nội)")
-plt.xlabel("Diện tích (m², Log scale)")
-plt.ylabel("Giá bán (Tỷ VNĐ, Log scale)")
+plt.xlabel("Diện tích (m², thang log)")
+plt.ylabel("Giá bán (Tỷ VNĐ, thang log)")
 plt.legend()
 save("13_knn_neighborhood.png")
 
