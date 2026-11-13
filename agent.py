@@ -16,8 +16,8 @@ load_dotenv()
 from openai import OpenAI
 from tools import TOOL_CATALOG
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = "openrouter/free"
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
 SYSTEM_PROMPT = """Bạn là HouseAssist, trợ lý AI chuyên nghiệp phân tích và định giá bất động sản tại thị trường Việt Nam.
 Phạm vi chuyên môn: nhà ở tại các tỉnh/thành lớn như Hà Nội, TP. Hồ Chí Minh, Đà Nẵng, Bình Dương, Đồng Nai, Cần Thơ và toàn quốc.
@@ -45,6 +45,12 @@ Phân khúc thị trường Việt Nam:
 - Trung cấp: 2–5 tỷ VNĐ
 - Cao cấp: 5–15 tỷ VNĐ
 - Hạng sang: > 15 tỷ VNĐ
+
+NGUYÊN TẮC KHI GỢI Ý NHÀ TƯƠNG ĐỒNG:
+Khi khách hàng muốn tìm nhà, bạn BẮT BUỘC phải xác định được 3 thông tin: Tỉnh/Thành phố, Mức giá và Diện tích.
+Nếu khách hàng nhắn thiếu 1 trong 3 thông tin trên (đặc biệt là Tỉnh/Thành phố), tuyệt đối không tự ý bịa ra mà phải khéo léo hỏi lại khách. (Ví dụ: "Dạ anh/chị muốn tìm nhà 5 tỷ, 80m2 ở khu vực tỉnh thành nào ạ?")
+KHÔNG BAO GIỜ hỏi khách hàng về số lượng "phòng tắm/nhà vệ sinh".
+Nếu khách hàng không nhắc đến số "phòng ngủ", không cần hỏi lại. Hệ thống sẽ tự động tính toán số phòng ngủ tối ưu cho khách.
 """
 
 TOOL_SCHEMAS = [
@@ -93,7 +99,7 @@ TOOL_SCHEMAS = [
                         "description": "Tuổi nhà (năm, ví dụ 0 = mới xây, 10, 20)",
                     },
                 },
-                "required": ["land_area"],
+                "required": ["land_area", "province"],
             },
         },
     },
@@ -117,7 +123,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "segment_house",
-            "description": "Xác định phân khúc căn nhà (Bình dân / Trung cấp / Cao cấp / Hạng sang) dựa trên giá bán và diện tích đất sử dụng thuật toán K-Means.",
+            "description": "Xác định phân khúc căn nhà (Bình dân / Trung cấp / Cao cấp / Hạng sang) tại một tỉnh/thành cụ thể.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -129,8 +135,12 @@ TOOL_SCHEMAS = [
                         "type": "number",
                         "description": "Diện tích đất (m², ví dụ 60, 80, 150)",
                     },
+                    "province": {
+                        "type": "string",
+                        "description": "Tỉnh/Thành phố (ví dụ: Hà Nội, Đà Nẵng).",
+                    },
                 },
-                "required": ["price_billion_vnd"],
+                "required": ["price_billion_vnd", "land_area_m2", "province"],
             },
         },
     },
@@ -138,31 +148,33 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "find_similar_houses",
-            "description": "Tìm kiếm các căn nhà thực tế tương tự trong bộ dữ liệu Việt Nam theo tỉnh/thành, ngân sách giá hoặc diện tích.",
+            "description": "Tìm kiếm các ngôi nhà tương đồng trong kho hàng thực tế dựa trên yêu cầu của khách.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "province": {
                         "type": "string",
-                        "description": "Tỉnh/Thành phố mong muốn tìm (ví dụ Hà Nội, TP. Hồ Chí Minh)",
+                        "description": "Tên tỉnh/thành phố khách hàng muốn tìm (Ví dụ: 'Hà Nội', 'Đà Nẵng'). Bắt buộc phải có."
                     },
-                    "target_price_billion": {
+                    "price_billion": {
                         "type": "number",
-                        "description": "Ngân sách giá mong muốn (Tỷ VNĐ, ví dụ 2.5, 5.0)",
+                        "description": "Mức giá mong muốn tính bằng tỷ VNĐ. Bắt buộc phải có."
+                    },
+                    "land_area": {
+                        "type": "number",
+                        "description": "Diện tích mong muốn tính bằng m2. Bắt buộc phải có."
                     },
                     "bedrooms": {
                         "type": "integer",
-                        "description": "Số phòng ngủ mong muốn",
+                        "description": "Số lượng phòng ngủ mong muốn. (Không bắt buộc)"
                     },
-                    "land_area_m2": {
-                        "type": "number",
-                        "description": "Diện tích đất mong muốn (m²)",
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Số lượng căn muốn xem (mặc định 3)",
-                    },
+                    "property_type": {
+                        "type": "string",
+                        "description": "Loại hình bất động sản (Ví dụ: 'Chung cư', 'Nhà phố'). (Không bắt buộc)"
+                    }
                 },
+                # Khóa chặt 3 tham số này, nếu LLM thấy thiếu nó sẽ tự động hỏi lại khách
+                "required": ["province", "price_billion", "land_area"]
             },
         },
     },
@@ -205,7 +217,7 @@ def run_agent_turn(
     Trả về: (câu trả lời cuối cùng, danh sách các tool calls đã diễn ra).
     """
     if not api_key:
-        api_key = os.getenv("OPENROUTER_API_KEY", "")
+        api_key = os.getenv("GEMINI_API_KEY", "")
 
     # Chuẩn bị hội thoại bao gồm System Prompt nếu chưa có
     full_messages = []
@@ -221,7 +233,7 @@ def run_agent_turn(
         return fallback_ans, fallback_tools
 
     client = OpenAI(
-        base_url=OPENROUTER_BASE_URL,
+        base_url=GEMINI_BASE_URL,
         api_key=api_key,
         default_headers={
             "HTTP-Referer": site_url,
@@ -355,7 +367,7 @@ def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
                     area = n
                 else:
                     price = n
-        res = TOOL_CATALOG["segment_house"](price_billion_vnd=price, land_area_m2=area)
+        res = TOOL_CATALOG["segment_house"](price_billion_vnd=price, land_area_m2=area, province="Hà Nội")
         tool_logs.append({"tool_name": "segment_house", "arguments": {"price_billion_vnd": price, "land_area_m2": area}, "result": res})
         ans = f"### Phân Khúc Bất Động Sản Việt Nam (K-Means Clustering):\n"
         ans += f"- **Phân khúc:** {res['segment_name']}\n"
@@ -366,19 +378,20 @@ def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
 
     # 4. Tìm kiếm nhà tương đồng
     if any(k in text_lower for k in ["tìm nhà", "tìm kiếm", "căn nhà tương tự", "tương đồng", "find"]):
-        res = TOOL_CATALOG["find_similar_houses"](province="Hà Nội", max_results=3)
-        tool_logs.append({"tool_name": "find_similar_houses", "arguments": {"province": "Hà Nội"}, "result": res})
-        ans = "### Các Căn Nhà Tương Đồng Tiêu Biểu Trong Bộ Dữ Liệu:\n"
-        for idx, h in enumerate(res.get("matches", []), 1):
-            name = h.get("display_name") or f"Nhà tại {h.get('province', 'Việt Nam')}"
-            ans += f"{idx}. **{name} — {h.get('province')}, {h.get('district', '')}**\n"
-            if h.get("full_address"):
-                ans += f"   - Địa chỉ: `{h['full_address']}`\n"
-            ans += f"   - Giá: `{h['price_formatted']}` | Đơn giá: `{h['price_per_m2']}` ({h.get('price_segment', '')})\n"
-            ans += f"   - Diện tích đất: `{h['land_area_m2']} m²` | {h['bedrooms']} PN, {h['bathrooms']} PT, {h.get('floors', 1)} tầng\n"
-            legal = h.get("legal_status") or "Đang cập nhật"
-            furn = h.get("furniture_state") or "Không rõ"
-            ans += f"   - Pháp lý: {legal} | Nội thất: {furn}\n"
+        # Cung cấp đủ 3 tham số bắt buộc cho Fallback
+        res = TOOL_CATALOG["find_similar_houses"](province="Hà Nội", price_billion=5.0, land_area=80.0, limit=3)
+        tool_logs.append({"tool_name": "find_similar_houses", "arguments": {"province": "Hà Nội", "price_billion": 5.0, "land_area": 80.0}, "result": res})
+        ans = "### Các Căn Nhà Tương Đồng Tiêu Biểu Trong Bộ Dữ Liệu (Mô phỏng 5 Tỷ, 80m2 tại Hà Nội):\n"
+        
+        # Cập nhật key truy xuất khớp với cấu trúc return mới của tools.py
+        if res.get("status") == "success":
+            for idx, h in enumerate(res.get("recommendations", []), 1):
+                ans += f"{idx}. **{h.get('Loại nhà', 'Nhà đất')} tại {h.get('Địa chỉ')}**\n"
+                ans += f"   - Giá bán: `{h.get('Giá bán (Tỷ)')} Tỷ VNĐ`\n"
+                ans += f"   - Diện tích: `{h.get('Diện tích (m2)')} m²` | {h.get('Phòng ngủ')} PN\n"
+                ans += f"   - Độ tương đồng (sai số): {h.get('Độ sai lệch')}\n"
+        else:
+            ans += f"Không tìm thấy dữ liệu. Lỗi: {res.get('message', 'Không xác định')}\n"
         return ans, tool_logs
 
     # 5. Mặc định: Dự đoán giá nhà

@@ -5,7 +5,7 @@ Chứa các hằng số, danh sách thuộc tính và đường dẫn file dữ 
 
 from pathlib import Path
 
-# Cấu hình thư mục và đường dẫn file (tương đối theo vị trí file common.py)
+# Cấu hình thư mục và đường dẫn file
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 CHART_DIR = BASE_DIR / "eda_charts"
@@ -15,6 +15,7 @@ RAW_FILE = (
     if (DATA_DIR / "Vietnam_Housing_Data_10000.xlsx").exists()
     else (BASE_DIR / "Vietnam_Housing_Data_10000.xlsx")
 )
+# Dùng chung 1 file CSV sạch cho toàn bộ hệ thống
 CLEAN_FILE = DATA_DIR / "housing_clean.csv"
 CLEAN_EXCEL_FILE = DATA_DIR / "Vietnam_Housing_Data_10000_clean.xlsx"
 

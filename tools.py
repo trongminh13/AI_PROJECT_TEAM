@@ -10,38 +10,36 @@ Triển khai 5 công cụ nghiệp vụ bất động sản chuẩn hóa cho th�
 
 import numpy as np
 import pandas as pd
-from data import load_clean_data, load_listing_data, get_trained_models, _normalize_province
+from sklearn.neighbors import NearestNeighbors
+from data import load_clean_data, load_listing_data, get_trained_models
 
 
 def predict_house_price(
     land_area: float,
-    province: str = "Hà Nội",
+    province: str,
     floor_area: float = None,
-    bedrooms: int = 3,
-    bathrooms: float = 2.0,
-    floors: float = 2.0,
-    house_age: float = 5.0,
-    frontage: float = 4.0,
-    road_width: float = 6.0,
-    distance_to_center: float = 5.0,
-    distance_to_school: float = 1.5,
-    distance_to_hospital: float = 2.0,
-    distance_to_market: float = 1.0,
-    property_type: str = "Nhà phố",
-    location_type: str = "Ven trung tâm",
+    bedrooms: int = None,
+    bathrooms: float = None,
+    floors: float = None,
+    house_age: float = None,
+    frontage: float = None,
+    road_width: float = None,
+    distance_to_center: float = None,
+    distance_to_school: float = None,
+    distance_to_hospital: float = None,
+    distance_to_market: float = None,
+    property_type: str = None,
+    location_type: str = None,
 ) -> dict:
     """
-    Dự đoán giá bán căn nhà (Tỷ VNĐ) tại thị trường Việt Nam bằng mô hình Random Forest đã kiểm định.
+    Dự đoán giá bán căn nhà (Tỷ VNĐ).
+    Các tham số bị thiếu sẽ được TỰ ĐỘNG ĐIỀN bằng giá trị Mode/Median của tỉnh/thành đó.
     """
     try:
         reg_model, _, _, _, _, _ = get_trained_models()
         df_clean = load_clean_data()
 
-        # Mặc định floor_area = land_area * floors nếu không cung cấp
-        if floor_area is None:
-            floor_area = land_area * floors
-
-        # Chuẩn hóa tên tỉnh (tìm kiếm gần đúng)
+        # 1. Chuẩn hóa tên tỉnh/thành
         all_provinces = df_clean["Province"].unique().tolist()
         matched_province = None
         for p in all_provinces:
@@ -54,41 +52,66 @@ def predict_house_price(
                     matched_province = p
                     break
         if not matched_province:
-            matched_province = "Hà Nội"  # Mặc định
+            matched_province = "Hà Nội"
 
-        # Chuẩn hóa property_type
-        all_ptypes = df_clean["Property_Type"].unique().tolist()
-        matched_ptype = property_type if property_type in all_ptypes else all_ptypes[0]
+        # 2. Lọc Data theo Tỉnh để lấy hệ quy chiếu địa phương
+        prov_df = df_clean[df_clean["Province"] == matched_province]
+        if prov_df.empty:
+            prov_df = df_clean # Fallback toàn quốc nếu lỗi
 
-        # Chuẩn hóa location_type
-        all_ltypes = df_clean["Location_Type"].unique().tolist()
-        matched_ltype = location_type if location_type in all_ltypes else all_ltypes[0]
+        # 3. TỰ ĐỘNG ĐIỀN KHUYẾT (DYNAMIC DEFAULTS)
+        # Nguyên tắc: Dùng Mode cho số nguyên/phân loại, Dùng Median cho số thực/khoảng cách
+        def get_val(val, col, is_mode=False):
+            if val is not None:
+                return val
+            return prov_df[col].mode()[0] if is_mode else prov_df[col].median()
 
-        # Tạo DataFrame đầu vào đúng format
+        # Xử lý biến phân loại và số nguyên (Mode)
+        property_type = property_type if property_type else prov_df["Property_Type"].mode()[0]
+        location_type = location_type if location_type else prov_df["Location_Type"].mode()[0]
+        bedrooms = int(get_val(bedrooms, "Bedrooms", is_mode=True))
+        floors = float(get_val(floors, "Floors", is_mode=True))
+        bathrooms = float(get_val(bathrooms, "Bathrooms", is_mode=True))
+
+        # Xử lý biến liên tục, khoảng cách (Median)
+        distance_to_center = float(get_val(distance_to_center, "Distance_To_Center"))
+        distance_to_school = float(get_val(distance_to_school, "Distance_To_School"))
+        distance_to_hospital = float(get_val(distance_to_hospital, "Distance_To_Hospital"))
+        distance_to_market = float(get_val(distance_to_market, "Distance_To_Market"))
+        house_age = float(get_val(house_age, "House_Age"))
+        frontage = float(get_val(frontage, "Frontage"))
+        road_width = float(get_val(road_width, "Road_Width"))
+
+        # Diện tích sàn
+        if floor_area is None:
+            floor_area = float(land_area) * floors
+
+        # 4. Tạo DataFrame đầu vào
         input_data = pd.DataFrame(
             [
                 {
                     "Land_Area": float(land_area),
                     "Floor_Area": float(floor_area),
-                    "Floors": float(floors),
-                    "Bedrooms": int(bedrooms),
-                    "Bathrooms": float(bathrooms),
-                    "House_Age": float(house_age),
-                    "Frontage": float(frontage),
-                    "Road_Width": float(road_width),
-                    "Distance_To_Center": float(distance_to_center),
-                    "Distance_To_School": float(distance_to_school),
-                    "Distance_To_Hospital": float(distance_to_hospital),
-                    "Distance_To_Market": float(distance_to_market),
+                    "Floors": floors,
+                    "Bedrooms": bedrooms,
+                    "Bathrooms": bathrooms,
+                    "House_Age": house_age,
+                    "Frontage": frontage,
+                    "Road_Width": road_width,
+                    "Distance_To_Center": distance_to_center,
+                    "Distance_To_School": distance_to_school,
+                    "Distance_To_Hospital": distance_to_hospital,
+                    "Distance_To_Market": distance_to_market,
                     "Province": matched_province,
-                    "Property_Type": matched_ptype,
-                    "Location_Type": matched_ltype,
+                    "Property_Type": property_type,
+                    "Location_Type": location_type,
                 }
             ]
         )
 
         pred_log = reg_model.predict(input_data)[0]
         estimated_price = float(np.expm1(pred_log))
+        
 
         # Khoảng giá dao động (±12%)
         lower_bound = max(0.1, estimated_price * 0.88)
@@ -108,7 +131,7 @@ def predict_house_price(
                 "floor_area_m2": floor_area,
                 "bedrooms": bedrooms,
                 "bathrooms": bathrooms,
-                "property_type": matched_ptype,
+                "property_type": property_type,
                 "distance_to_center_km": distance_to_center,
             },
             "note": "Giá được ước tính bằng mô hình Random Forest Regressor đã kiểm định (dữ liệu nhà ở Việt Nam).",
@@ -199,137 +222,171 @@ def get_market_statistics(province: str = None) -> dict:
         return {"status": "error", "message": f"Lỗi thống kê: {str(e)}"}
 
 
-def segment_house(price_billion_vnd: float, land_area_m2: float = 80.0) -> dict:
+def segment_house(price_billion_vnd: float, land_area_m2: float, province: str) -> dict:
     """
     Xác định phân khúc căn nhà (Bình dân / Trung cấp / Cao cấp / Hạng sang)
-    dựa trên thuật toán K-Means (k=4) — phù hợp với thị trường Việt Nam.
+    dựa trên thuật toán K-Means (k=4) bằng phân cụm cục bộ (Local Clustering).
     """
+    from sklearn.cluster import KMeans
+    from sklearn.preprocessing import StandardScaler
     try:
-        _, (kmeans, mapping), km_scaler, _, _, _ = get_trained_models()
+        df = load_clean_data()
+        
+        # 1. Lọc tập dữ liệu theo tỉnh thành
+        df_local = df[df['Province'].str.contains(province, case=False, na=False)].copy()
+        
+        # Fallback: Nếu tỉnh lạ hoặc quá ít dữ liệu, lấy dữ liệu toàn quốc
+        if len(df_local) < 15:
+            df_local = df.copy()
+            province_analyzed = "Toàn quốc (Mặc định)"
+        else:
+            province_analyzed = df_local['Province'].iloc[0]
 
-        log_input = pd.DataFrame(
-            [[np.log1p(float(price_billion_vnd)), np.log1p(float(land_area_m2))]],
-            columns=["Price_Billion_VND", "Land_Area"],
-        )
-        scaled_input = km_scaler.transform(log_input)
-        raw_cluster = kmeans.predict(scaled_input)[0]
-        mapped_segment = mapping[raw_cluster]
+        # 2. Tiền xử lý
+        X_local = df_local[['Price_Billion_VND', 'Land_Area']].copy()
+        X_log = np.log1p(X_local)
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X_log)
+        
+        # 3. K-Means
+        kmeans = KMeans(n_clusters=4, n_init=15, random_state=42)
+        df_local['Raw_Cluster'] = kmeans.fit_predict(X_scaled)
+        
+        # 4. Gom nhãn theo thứ bậc giá
+        cluster_prices = df_local.groupby('Raw_Cluster')['Price_Billion_VND'].mean().sort_values()
+        cluster_mapping = {old: new for new, old in enumerate(cluster_prices.index)}
+        
+        # 5. Phân loại căn nhà đầu vào
+        input_data = pd.DataFrame([[np.log1p(float(price_billion_vnd)), np.log1p(float(land_area_m2))]],
+                                  columns=['Price_Billion_VND', 'Land_Area'])
+        input_scaled = scaler.transform(input_data)
+        raw_pred = kmeans.predict(input_scaled)[0]
+        final_segment = cluster_mapping[raw_pred]
 
         segment_names = {
             0: "Bình dân (Starter)",
             1: "Trung cấp (Mid-tier)",
             2: "Cao cấp (Premium)",
-            3: "Hạng sang (Luxury)",
+            3: "Hạng sang (Luxury)"
         }
+        
         segment_desc = {
-            0: "Mức giá dưới 2 tỷ VNĐ. Phù hợp cho người mua nhà lần đầu, nhà ở xã hội hoặc khu vực ngoại tỉnh.",
-            1: "Mức giá từ 2–5 tỷ VNĐ. Phân khúc nhà ở gia đình phổ biến nhất tại các tỉnh/thành loại 2.",
-            2: "Mức giá từ 5–15 tỷ VNĐ. Nhà phố, chung cư cao cấp tại các đô thị lớn (Hà Nội, TP.HCM, Đà Nẵng).",
-            3: "Mức giá trên 15 tỷ VNĐ. Biệt thự, penthouse, dự án cao cấp như Vinhomes, Sun Group.",
+            0: f"Mức giá rẻ nhất tại {province_analyzed}. Phù hợp cho nhà ở xã hội, ngõ nhỏ.",
+            1: f"Phân khúc phổ biến nhất tại {province_analyzed}. Nhà ở gia đình trung lưu.",
+            2: f"Phân khúc giá cao tại {province_analyzed}. Chung cư cao cấp, nhà mặt phố nhỏ.",
+            3: f"Mức giá đắt đỏ nhất tại {province_analyzed}. Biệt thự, dự án hạng sang."
         }
 
         return {
             "status": "success",
-            "segment_id": int(mapped_segment),
-            "segment_name": segment_names[mapped_segment],
+            "province_analyzed": province_analyzed,
+            "segment_name": segment_names[final_segment],
             "price_analyzed": f"{float(price_billion_vnd):.2f} tỷ VNĐ",
             "area_analyzed": f"{float(land_area_m2):.0f} m²",
-            "market_profile": segment_desc[mapped_segment],
+            "market_profile": segment_desc[final_segment],
+            "local_average_price_for_segment": f"{cluster_prices.iloc[final_segment]:.2f} tỷ VNĐ"
         }
     except Exception as e:
         return {"status": "error", "message": f"Lỗi phân khúc: {str(e)}"}
 
 
 def find_similar_houses(
-    province: str = None,
-    target_price_billion: float = None,
+    price_billion: float,
+    land_area: float,
+    province: str,
     bedrooms: int = None,
-    land_area_m2: float = None,
-    max_results: int = 3,
+    property_type: str = None,
+    limit: int = 3
 ) -> dict:
     """
-    Tìm kiếm các căn nhà thực tế có cấu trúc và mức giá tương đồng.
-    Nguồn: house_cleaned.csv (30,078 dòng) — chứa địa chỉ thật, tên dự án Vinhomes thật.
+    Tìm kiếm các căn nhà tương đồng trong kho hàng thực tế (9,714 dòng)...
+    Sử dụng kết hợp Lọc cứng (Tỉnh/Thành, Loại nhà) và KNN trên 3 đặc trưng (Giá, Diện tích, Phòng ngủ).
     """
     try:
-        # Dùng listing data thực tế (house_cleaned.csv) thay vì ML data
-        df = load_listing_data()
-        filtered = df.copy()
+        # 1. Tải dữ liệu kho hàng thực tế và công cụ chuẩn hóa
+        df_listing = load_listing_data()
+        
+        # Lấy nn_scaler từ data.py (biến thứ 5 trong tuple trả về)
+        _, _, _, _, nn_scaler, _ = get_trained_models() 
+        
+        # 2. BỘ LỌC CỨNG (Hard Pre-filtering)
+        # Lọc kho hàng theo Tỉnh/Thành phố (Không phân biệt hoa thường)
+        mask = df_listing['Province'].str.contains(province, case=False, na=False)
+        df_filtered = df_listing[mask].copy()
+        
+        if df_filtered.empty:
+            return {
+                "status": "error", 
+                "message": f"Hiện tại không có dữ liệu nhà đất nào tại: {province}"
+            }
+            
+        # Lọc thêm theo Loại nhà (Nếu AI/Người dùng có cung cấp)
+        if property_type and 'Property_Type' in df_filtered.columns:
+            prop_mask = df_filtered['Property_Type'].str.contains(property_type, case=False, na=False)
+            if not df_filtered[prop_mask].empty:
+                df_filtered = df_filtered[prop_mask]
+                
+        # 3. TỰ ĐỘNG NỘI SUY (Dynamic Default cho Phòng ngủ)
+        if bedrooms is None:
+            # Lấy trung vị số phòng ngủ của chính khu vực và loại nhà đó
+            bedrooms = int(df_filtered['Bedrooms'].median())
+            if pd.isna(bedrooms): 
+                bedrooms = 3 # Dự phòng an toàn
 
-        # Lọc theo tỉnh/thành nếu có (chuẩn hóa tên để cross-file match đúng)
-        if province and str(province).strip().lower() not in ["all", "any", "tùy ý", ""]:
-            norm_input = _normalize_province(str(province).strip())
-            matched_prov = None
-            for p in df["Province_norm"].unique():
-                if norm_input.lower() in p.lower() or p.lower() in norm_input.lower():
-                    matched_prov = p
-                    break
-            if matched_prov:
-                filtered = filtered[filtered["Province_norm"] == matched_prov]
-
-        # Lọc theo số phòng ngủ nếu có
-        if bedrooms is not None and bedrooms > 0:
-            filtered = filtered[(filtered["Bedrooms"] >= bedrooms - 1) & (filtered["Bedrooms"] <= bedrooms + 1)]
-
-        # Nới lỏng nếu quá ít kết quả
-        if len(filtered) < max_results:
-            filtered = df.copy()
-
-        # Tính khoảng cách tương đồng (Euclidean trên giá và diện tích chuẩn hóa)
-        ref_price = float(target_price_billion) if target_price_billion else df["Price_Billion_VND"].median()
-        ref_area = float(land_area_m2) if land_area_m2 else df["Land_Area"].median()
-
-        price_std = df["Price_Billion_VND"].std()
-        area_std = df["Land_Area"].std()
-
-        diff_score = np.sqrt(
-            ((filtered["Price_Billion_VND"] - ref_price) / price_std) ** 2
-            + ((filtered["Land_Area"] - ref_area) / area_std) ** 2
-        )
-
-        similar_indices = diff_score.sort_values().head(max_results).index
-        similar_houses = filtered.loc[similar_indices]
-
+        # 4. CHẠY KNN CỤC BỘ (Trên tập dữ liệu đã lọc)
+        # Trích xuất đúng 3 đặc trưng cốt lõi
+        X_raw = df_filtered[["Price_Billion_VND", "Land_Area", "Bedrooms"]]
+        
+        # Áp dụng Logarit và Chuẩn hóa (Dùng lại tỷ lệ chuẩn của toàn quốc)
+        X_scaled = nn_scaler.transform(np.log1p(X_raw))
+        
+        # Khởi tạo thuật toán đo khoảng cách (chạy cực nhanh vì tập dữ liệu đã thu hẹp)
+        n_neighbors = min(limit, len(df_filtered))
+        local_nn = NearestNeighbors(n_neighbors=n_neighbors, metric="euclidean")
+        local_nn.fit(X_scaled)
+        
+        # 5. TẠO ĐIỂM MỤC TIÊU VÀ TÌM KIẾM
+        target_raw = pd.DataFrame([{
+            "Price_Billion_VND": float(price_billion),
+            "Land_Area": float(land_area),
+            "Bedrooms": float(bedrooms)
+        }])
+        target_scaled = nn_scaler.transform(np.log1p(target_raw))
+        
+        # Tính toán và lấy ra top n_neighbors căn nhà gần nhất
+        distances, indices = local_nn.kneighbors(target_scaled)
+        
+        # 6. ĐÓNG GÓI KẾT QUẢ GỬI VỀ CHO AI AGENT
         results = []
-        for _, row in similar_houses.iterrows():
-            # Hiển thị tên dự án nếu có, ngược lại dùng địa chỉ đầy đủ
-            project = str(row.get("Project", "Unknown"))
-            display_name = project if project not in ("Unknown", "", "nan") else str(row.get("Full_Address", ""))
-
-            results.append(
-                {
-                    "display_name": display_name,
-                    "full_address": str(row.get("Full_Address", "")),
-                    "project": project if project not in ("Unknown", "", "nan") else "",
-                    "province": row["Province"],
-                    "district": str(row.get("District", "")),
-                    "ward": str(row.get("Ward", "")),
-                    "street": str(row.get("Street", "")) if str(row.get("Street", "")) != "Unknown" else "",
-                    "price_formatted": f"{row['Price_Billion_VND']:.2f} tỷ VNĐ",
-                    "price_per_m2": f"{row['price_per_m2']:.1f} triệu/m²",
-                    "price_segment": str(row.get("Price_Segment", "")),
-                    "land_area_m2": round(float(row["Land_Area"]), 1),
-                    "bedrooms": int(row["Bedrooms"]),
-                    "bathrooms": float(row["Bathrooms"]),
-                    "floors": int(row.get("Floors", 1)),
-                    "legal_status": str(row.get("Legal_Status", "")),
-                    "furniture_state": str(row.get("Furniture_State", "")),
-                }
-            )
-
+        for i, idx in enumerate(indices[0]):
+            house = df_filtered.iloc[idx]
+            
+            # Cấu trúc địa chỉ thực tế đẹp mắt
+            address = f"{house.get('Street', '')}, {house.get('Ward', '')}, {house.get('District', '')}, {house['Province']}".replace(" ,", "")
+            
+            results.append({
+                "Mã nhà": str(house.get("House_ID", f"ID_{i}")),
+                "Loại nhà": str(house.get("Property_Type", house.get("Type", "Nhà đất"))),
+                "Giá bán (Tỷ)": round(float(house["Price_Billion_VND"]), 2),
+                "Diện tích (m2)": round(float(house["Land_Area"]), 1),
+                "Phòng ngủ": int(house["Bedrooms"]),
+                "Địa chỉ": address.strip(", "),
+                "Độ sai lệch": round(float(distances[0][i]), 4) # Càng gần 0 càng giống
+            })
+            
         return {
             "status": "success",
-            "count": len(results),
-            "data_source": "house_cleaned.csv (30,078 listings thực tế)",
             "search_criteria": {
-                "province": province or "Toàn quốc",
-                "target_price": f"{ref_price:.2f} tỷ VNĐ" if target_price_billion else "Mặc định trung vị",
-                "land_area_m2": f"{ref_area:.0f} m²" if land_area_m2 else "Mặc định trung vị",
+                "province": province,
+                "price_billion": price_billion,
+                "land_area": land_area,
+                "assumed_bedrooms": int(bedrooms)
             },
-            "matches": results,
+            "recommendations": results
         }
+        
     except Exception as e:
-        return {"status": "error", "message": f"Lỗi tìm kiếm: {str(e)}"}
+        return {"status": "error", "message": f"Lỗi hệ thống khi tìm kiếm: {str(e)}"}
 
 
 
