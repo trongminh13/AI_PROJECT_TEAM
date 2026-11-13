@@ -274,8 +274,8 @@ def run_agent_turn(
             if not msg.tool_calls:
                 return msg.content or "Tôi có thể hỗ trợ gì thêm về thị trường bất động sản Việt Nam?", tool_logs
 
-            # Ghi lại yêu cầu gọi công cụ (dạng dict chuẩn OpenAI để mọi nhà cung cấp đều nhận)
-            full_messages.append({
+            # --- FIX GEMINI 400: thought_signature required for function calling ---
+            assistant_msg = {
                 "role": "assistant",
                 "content": msg.content or "",
                 "tool_calls": [
@@ -283,7 +283,14 @@ def run_agent_turn(
                      "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
                     for tc in msg.tool_calls
                 ],
-            })
+            }
+            # Preserve thought_signature if present (Gemini requirement)
+            if hasattr(msg, "model_extra") and msg.model_extra and "thought_signature" in msg.model_extra:
+                assistant_msg["thought_signature"] = msg.model_extra["thought_signature"]
+            elif hasattr(msg, "thought_signature"):
+                assistant_msg["thought_signature"] = msg.thought_signature
+
+            full_messages.append(assistant_msg)
             for tc in msg.tool_calls:
                 try:
                     fn_args = json.loads(tc.function.arguments or "{}")
