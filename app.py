@@ -1012,10 +1012,10 @@ with settings_tab:
         st.markdown("#### 🔑 Quản Trị Cổng LLM (Gemini / OpenRouter)")
         model_list = [
             "gemini-3.5-flash-lite",
-            "meta-llama/llama-3.3-70b-instruct:free",
-            "openrouter/free",
-            "deepseek/deepseek-r1:free",
-            "mistralai/mistral-7b-instruct:free",
+            "meta-llama/llama-3.3-70b-instruct",
+            "deepseek/deepseek-chat",
+            "mistralai/mistral-large-2411",
+            "google/gemini-2.0-flash-001",
         ]
         chosen_m = st.selectbox(
             "Lựa chọn Model LLM:",

@@ -1,5 +1,23 @@
 # Báo Cáo Đảm Bảo Chất Lượng (QA & Test Verification)
 
+## [2026-11-13 19:35] Khắc phục lỗi Gemini Error code 400, nâng cấp Trí nhớ đa lượt Offline, chuẩn hóa Unit Test 7/7 và cập nhật OpenRouter models
+- Phạm vi: `agent.py`, `app.py`, `tests/test_tools.py`, `.gitignore`, `README.md`
+- Môi trường: Linux x86_64, Python 3.14 (Virtualenv `.venv`), Streamlit 1.67.0, Scikit-learn 1.9.1, OpenAI SDK 3.50.0, nơi chạy: local
+- Lệnh đã chạy và kết quả:
+  - `.venv/bin/python -m unittest tests/test_tools.py` — Đạt — Ran 7 tests in 6.047s, OK (7/7 tests passed: predict, stats, segment, KNN similar, feature importance, invalid province, segment details)
+  - `.venv/bin/python -m py_compile agent.py app.py tests/test_tools.py` — Đạt — Exit code 0, không có lỗi cú pháp
+  - Kiểm thử trực tiếp `agent.run_agent_turn` — Đạt — Offline Turn 2 kế thừa "Hà Nội" + "5 tỷ" gọi `find_similar_houses`, Online Gemini gọi `get_market_statistics` thành công 100% không còn lỗi 400
+  - `curl -s -I http://localhost:8501` — Đạt — HTTP/1.1 200 OK, Uvicorn/Streamlit phục vụ bình thường
+- Yêu cầu → test:
+  - Khắc phục lỗi Gemini 400 do thiếu thought_signature → `test_online_gemini_turn` & gọi trực tiếp trên web
+  - Nâng cấp Trí nhớ đa lượt cho chế độ Offline Fallback → `test_offline_multiturn_memory`
+  - Đồng bộ Unit Test với tools.py thực tế → `tests/test_tools.py` (7/7 test cases passed)
+  - Cập nhật model list OpenRouter trong Settings tab → Kiểm tra dropdown và gọi model meta-llama/llama-3.3-70b-instruct
+- Lỗi hoặc cảnh báo mới: Không có
+- Chưa kiểm chứng: Không có
+- Kết luận: Đạt
+
+
 ## 1. Thông Tin Kiểm Thử
 - **Thời gian**: 2026-10-19
 - **Môi trường**: Python 3.14.8, Streamlit 1.56.0, Pytest 8.4.2, FFmpeg 8.1.3

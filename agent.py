@@ -255,7 +255,7 @@ def run_agent_turn(
 
     # Không có API key -> bộ điều phối offline
     if not api_key:
-        return _run_heuristic_fallback(messages[-1]["content"])
+        return _run_heuristic_fallback(messages)
 
     headers = {"HTTP-Referer": site_url, "X-Title": site_name} if provider is PROVIDERS["openrouter"] else None
     client = OpenAI(base_url=provider["base_url"], api_key=api_key, default_headers=headers)
@@ -274,16 +274,8 @@ def run_agent_turn(
             if not msg.tool_calls:
                 return msg.content or "Tôi có thể hỗ trợ gì thêm về thị trường bất động sản Việt Nam?", tool_logs
 
-            # Ghi lại yêu cầu gọi công cụ (dạng dict chuẩn OpenAI để mọi nhà cung cấp đều nhận)
-            full_messages.append({
-                "role": "assistant",
-                "content": msg.content or "",
-                "tool_calls": [
-                    {"id": tc.id, "type": "function",
-                     "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                    for tc in msg.tool_calls
-                ],
-            })
+            # Ghi lại yêu cầu gọi công cụ (bảo toàn thought_signature cho Gemini và tương thích OpenRouter)
+            full_messages.append(msg.model_dump(exclude_none=True))
             for tc in msg.tool_calls:
                 try:
                     fn_args = json.loads(tc.function.arguments or "{}")
@@ -303,7 +295,7 @@ def run_agent_turn(
         return final.choices[0].message.content or "", tool_logs
 
     except Exception as e:
-        fallback_ans, fallback_tools = _run_heuristic_fallback(messages[-1]["content"])
+        fallback_ans, fallback_tools = _run_heuristic_fallback(messages)
         note = f"\n\n*(Lưu ý: đã chuyển sang chế độ phân tích ngoại tuyến vì kết nối {provider['label']} gặp lỗi: {str(e)[:100]})*"
         return fallback_ans + note, fallback_tools
 
@@ -341,13 +333,64 @@ def _log(tool_logs, name, args, result):
     tool_logs.append({"tool_name": name, "arguments": args, "result": result})
     return result
 
-def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
-    """Điều phối cục bộ khi không có API. Thiếu thông tin bắt buộc thì hỏi lại khách, không dùng giá trị mặc định."""
-    t = user_text.lower()
+def _run_heuristic_fallback(messages: list | str) -> tuple[str, list]:
+    """
+    Điều phối cục bộ khi không có API.
+    Tích lũy trí nhớ đa lượt (Stateful Memory): gộp tham số từ các câu hỏi trước trong hội thoại.
+    Thiếu thông tin bắt buộc thì hỏi lại khách, không dùng giá trị mặc định.
+    """
+    if isinstance(messages, str):
+        user_texts = [messages]
+    elif isinstance(messages, list):
+        user_texts = [
+            m.get("content", "")
+            for m in messages
+            if isinstance(m, dict) and m.get("role") == "user" and m.get("content")
+        ]
+        if not user_texts and messages:
+            last = messages[-1]
+            user_texts = [last.get("content", "") if isinstance(last, dict) else str(last)]
+    else:
+        user_texts = [str(messages)]
+
+    latest_text = user_texts[-1] if user_texts else ""
+    t_latest = latest_text.lower()
     tool_logs = []
     provinces = load_clean_data()["Province"].unique().tolist()
-    p = _extract_params(user_text, provinces)
-    has = lambda words: any(w in t for w in words)
+
+    # 1. Trích xuất tham số từ câu mới nhất
+    p = _extract_params(latest_text, provinces)
+
+    # 2. Tích lũy tham số từ các câu hỏi trước (Trí nhớ đa lượt - Stateful Memory)
+    if len(user_texts) > 1:
+        for prev_text in reversed(user_texts[:-1]):
+            prev_p = _extract_params(prev_text, provinces)
+            for k, v in prev_p.items():
+                if p[k] is None and v is not None:
+                    p[k] = v
+
+    # 3. Nhận diện ý định (Ưu tiên câu mới nhất, nếu câu mới chỉ bổ sung tham số thì kế thừa ý định trước)
+    def check_intent(text_str: str, keywords: list) -> bool:
+        ts = text_str.lower()
+        return any(w in ts for w in keywords)
+
+    def resolve_has(keywords: list) -> bool:
+        if check_intent(latest_text, keywords):
+            return True
+        # Nếu câu mới không chứa từ khóa nghiệp vụ nào, kiểm tra câu liền trước
+        all_intents = [
+            "yếu tố", "quan trọng", "ảnh hưởng", "feature importance", "tại sao giá", "tác động", "chi phối",
+            "phân khúc", "segment", "tìm nhà", "tìm giúp", "tìm kiếm", "tìm căn", "tương đồng", "tương tự", "mua nhà",
+            "dự đoán", "định giá", "ước tính", "predict", "thống kê", "trung vị", "trung bình", "median", "bao nhiêu căn"
+        ]
+        latest_has_any_intent = any(w in t_latest for w in all_intents)
+        if not latest_has_any_intent and len(user_texts) > 1:
+            for prev_text in reversed(user_texts[:-1]):
+                if check_intent(prev_text, keywords):
+                    return True
+        return False
+
+    has = resolve_has
 
     # 1. Yếu tố chi phối giá
     if has(["yếu tố", "quan trọng", "ảnh hưởng", "feature importance", "tại sao giá", "tác động", "chi phối"]):
@@ -378,7 +421,7 @@ def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
         return ans, tool_logs
 
     # 3. Tìm nhà tương đồng: bắt buộc đủ tỉnh, giá, diện tích
-    if has(["tìm nhà", "tìm giúp", "tìm kiếm", "tìm căn", "tương đồng", "tương tự", "find"]):
+    if has(["tìm nhà", "tìm giúp", "tìm kiếm", "tìm căn", "tương đồng", "tương tự", "find", "mua nhà"]):
         missing = [n for n, k in [("Tỉnh/Thành phố", "province"), ("mức giá (tỷ)", "price"), ("diện tích (m²)", "area")] if p[k] is None]
         if missing:
             return f"Để tìm nhà phù hợp, anh/chị vui lòng cho biết thêm: **{', '.join(missing)}** ạ.", tool_logs
