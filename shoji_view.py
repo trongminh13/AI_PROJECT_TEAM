@@ -13,8 +13,8 @@ def get_shoji_html(question: str = "", answer: str = "") -> str:
     Nếu có answer: Tự động chạy hoạt ảnh mở cửa và hiện chữ thư pháp loang mờ.
     Nếu chưa có: Hiển thị cửa đóng với ánh đèn vàng ấm và bóng người mờ ảo bên trong.
     """
-    safe_q = json.dumps(question, ensure_ascii=False)
-    safe_a = json.dumps(answer, ensure_ascii=False)
+    safe_q = json.dumps(question, ensure_ascii=False).replace("</", "<\\/")
+    safe_a = json.dumps(answer, ensure_ascii=False).replace("</", "<\\/")
     has_answer = "true" if (answer and answer.strip()) else "false"
 
     return f"""<!DOCTYPE html>
@@ -72,13 +72,13 @@ def get_shoji_html(question: str = "", answer: str = "") -> str:
   }}
   .text {{
     position: absolute; left: 0; top: 0; bottom: 10%;
-    width: 50%;
+    width: 100%;
     padding: 5% 5% 4% 6%;
     overflow-y: auto;
     color: var(--ink);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif !important;
-    font-size: clamp(13px, 1.6vw, 17px);
-    line-height: 1.75;
+    font-size: clamp(16px, 1.6vw, 22px);
+    line-height: 1.8;
     transition: opacity .5s;
     scrollbar-width: thin;
     scrollbar-color: #b99f68 transparent;
@@ -86,8 +86,12 @@ def get_shoji_html(question: str = "", answer: str = "") -> str:
   .text.fade {{ opacity: 0; }}
   .text .q {{ font-size: .82em; color: #8a6a3e; margin-bottom: .8em; letter-spacing: .04em; font-weight: 700; }}
   .text p {{ margin-bottom: .85em; }}
+  .text p.h {{ font-weight: 700; font-size: 1.08em; color: #7b2d26; margin: .2em 0 .6em; }}
+  .text p.li {{ padding-left: 1.1em; text-indent: -1.1em; margin-bottom: .45em; }}
+  .w.b {{ font-weight: 700; color: #4a2408; }}
   .w {{
     display: inline-block;
+    text-indent: 0;
     opacity: 0;
     filter: blur(5px);
     transform: translateY(5px);
@@ -171,7 +175,7 @@ def get_shoji_html(question: str = "", answer: str = "") -> str:
 
   @media (max-width: 700px) {{
     .frame {{ aspect-ratio: 3 / 4; --pw: 26; }}
-    .text {{ font-size: 13.5px; width: 100%; }}
+    .text {{ font-size: 16px; width: 100%; }}
   }}
 </style>
 </head>
@@ -218,6 +222,7 @@ def get_shoji_html(question: str = "", answer: str = "") -> str:
 (function () {{
   const frame   = document.getElementById('frame');
   const doorL   = document.getElementById('doorL');
+  const doorR   = document.getElementById('doorR'); // Thêm dòng này để gọi cánh cửa phải
   const person  = document.getElementById('person');
   const textBox = document.getElementById('text');
 
@@ -264,10 +269,12 @@ def get_shoji_html(question: str = "", answer: str = "") -> str:
 
     const T = 2400;
     doorL.style.transition = `transform ${{T}}ms ${{EASE}}`;
+    doorR.style.transition = `transform ${{T}}ms ${{EASE}}`; // Thêm dòng này
     glide(reachX - 50, T, EASE);
     person.classList.add('walking');
     setTimeout(() => {{ person.classList.remove('shadow'); person.classList.add('clear'); }}, 500);
     doorL.style.transform = 'translateX(-100%)';
+    doorR.style.transform = 'translateX(100%)'; // Thêm dòng này để đẩy cửa phải kịch viền
     await wait(T);
 
     person.classList.remove('walking', 'reach');
@@ -292,14 +299,35 @@ def get_shoji_html(question: str = "", answer: str = "") -> str:
     }}
 
     const spans = [];
-    String(answer).split(/\\n+/).forEach(par => {{
+    let bold = false;
+    String(answer).split(/\\n+/).forEach(rawLine => {{
+      let line = rawLine.trim();
+      if (!line) return;
+      let cls = '';
+      if (/^#{{1,6}}\\s+/.test(line)) {{
+        cls = 'h';
+        line = line.replace(/^#{{1,6}}\\s+/, '');
+      }} else if (/^[-*•]\\s+/.test(line)) {{
+        cls = 'li';
+        line = line.replace(/^[-*•]\\s+/, '• ');
+      }}
       const p = document.createElement('p');
-      par.split(/\\s+/).filter(Boolean).forEach(word => {{
-        const s = document.createElement('span');
-        s.className = 'w';
-        s.textContent = word;
-        p.append(s, ' ');
-        spans.push(s);
+      if (cls) p.className = cls;
+      bold = false;
+      line.split(/\\s+/).filter(Boolean).forEach(word => {{
+        let w = word;
+        if (w.startsWith('**')) {{ bold = true; w = w.slice(2); }}
+        const endBold = w.endsWith('**');
+        if (endBold) w = w.slice(0, -2);
+        w = w.replace(/`/g, '').replace(/^\\*|\\*$/g, '');
+        if (w) {{
+          const s = document.createElement('span');
+          s.className = 'w' + (bold ? ' b' : '');
+          s.textContent = w;
+          p.append(s, ' ');
+          spans.push(s);
+        }}
+        if (endBold) bold = false;
       }});
       textBox.appendChild(p);
     }});

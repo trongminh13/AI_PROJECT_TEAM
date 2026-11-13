@@ -19,33 +19,9 @@ if sys.platform.startswith("win"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 # Nhập các biến cấu hình từ common.py (hoặc dự phòng nếu chạy độc lập)
-try:
-    from common import (
-        BOOL_COLS, CLEAN_EXCEL_FILE, CLEAN_FILE, DATA_DIR, FEATURES, ID_COLS, ORDINAL_ORDER, RAW_FILE, TARGET,
-    )
-except ImportError:
-    DATA_DIR = CURRENT_DIR / "data"
-    RAW_FILE = DATA_DIR / "Vietnam_Housing_Data_10000.xlsx" if (DATA_DIR / "Vietnam_Housing_Data_10000.xlsx").exists() else CURRENT_DIR / "Vietnam_Housing_Data_10000.xlsx"
-    CLEAN_FILE = DATA_DIR / "housing_clean.csv"
-    CLEAN_EXCEL_FILE = DATA_DIR / "Vietnam_Housing_Data_10000_clean.xlsx"
-    ID_COLS = ["House_ID"]
-    TARGET = "Price_Billion_VND"
-    BOOL_COLS = ["Car_Access", "Parking", "Furniture_Included"]
-    FEATURES = [
-        "Province", "Ward", "District", "Street", "Location_Type", "Distance_To_Center",
-        "Property_Type", "Land_Area", "Floor_Area", "Floors", "Bedrooms", "Bathrooms",
-        "House_Age", "Frontage", "Architecture_Style", "Interior_Level",
-        "Construction_Quality", "House_Condition", "Legal_Status", "Road_Width",
-        "Car_Access", "Parking", "Distance_To_School", "Distance_To_Hospital",
-        "Distance_To_Market", "Sale_Date", "Furniture_Included"
-    ]
-    ORDINAL_ORDER = {
-        "Interior_Level": ["Chưa có nội thất", "Cơ bản", "Đầy đủ", "Cao cấp"],
-        "Construction_Quality": ["Trung bình", "Khá", "Tốt", "Cao cấp"],
-        "House_Condition": ["Xuống cấp", "Cần sửa chữa", "Tốt", "Mới"],
-        "Location_Type": ["Ngoại thành", "Ven trung tâm", "Trung tâm"],
-        "Legal_Status": ["Đang chờ giấy tờ", "Hợp đồng mua bán", "Sổ đỏ/Sổ hồng"]
-    }
+from common import (
+    BOOL_COLS, CLEAN_EXCEL_FILE, CLEAN_FILE, DATA_DIR, FEATURES, ID_COLS, ORDINAL_ORDER, RAW_FILE, TARGET,
+)
 
 # Đọc file dữ liệu gốc
 print(f"Đang đọc file gốc: {RAW_FILE}...")

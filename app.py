@@ -17,9 +17,8 @@ load_dotenv()
 
 import streamlit as st
 import pandas as pd
-import numpy as np
-from agent import run_agent_turn, DEFAULT_MODEL
-from data import load_listing_data, get_trained_models
+from agent import run_agent_turn, DEFAULT_MODEL, PROVIDERS, get_provider
+from data import load_listing_data, get_trained_models, get_model_report, segment_table, FEATURE_LABELS
 from tools import get_market_statistics, segment_house
 from shoji_view import get_shoji_html
 from scroll_view import get_scroll_styles, get_single_scroll_html, SCROLL_ITEMS
@@ -48,15 +47,6 @@ def get_ambient_video_b64(video_path: str = "assets/ambient_bg.mp4") -> str:
     if os.path.exists(video_path):
         with open(video_path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
-    return ""
-
-
-@st.cache_data
-def get_output_font_b64(font_path: str = os.path.join(os.path.dirname(__file__), "SVN-Hottroof-Semhesta.otf")) -> str:
-    """Đọc font output và cache để nhúng trực tiếp vào component trình duyệt."""
-    if os.path.exists(font_path):
-        with open(font_path, "rb") as font_file:
-            return base64.b64encode(font_file.read()).decode("ascii")
     return ""
 
 
@@ -543,17 +533,29 @@ if "last_tools" not in st.session_state:
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# Cấu hình API key mặc định
-if "api_key" not in st.session_state:
-    st.session_state.api_key = os.getenv("OPENROUTER_API_KEY", "")
-    try:
-        if not st.session_state.api_key and "OPENROUTER_API_KEY" in st.secrets:
-            st.session_state.api_key = st.secrets["OPENROUTER_API_KEY"]
-    except Exception:
-        pass
+# Cấu hình API key mặc định: mỗi nhà cung cấp (Gemini / OpenRouter) một khóa riêng
+if "api_keys" not in st.session_state:
+    _keys = {}
+    for _pid, _cfg in PROVIDERS.items():
+        _key = os.getenv(_cfg["env"], "")
+        if not _key:
+            try:
+                _key = st.secrets.get(_cfg["env"], "")
+            except Exception:
+                _key = ""
+        _keys[_pid] = _key
+    st.session_state.api_keys = _keys
 
 if "selected_model" not in st.session_state:
     st.session_state.selected_model = DEFAULT_MODEL
+
+
+def current_provider() -> str:
+    return get_provider(st.session_state.selected_model)
+
+
+def current_api_key() -> str:
+    return st.session_state.api_keys.get(current_provider(), "")
 
 # ==============================================================================
 # THANH SIDEBAR BÊN TRÁI (LEFT SIDEBAR DASHBOARD & CONTROLS)
@@ -572,11 +574,11 @@ with st.sidebar:
     )
 
     # Trạng thái kết nối LLM
-    if st.session_state.api_key:
+    if current_api_key():
         st.markdown(
             """
             <div style="padding: 6px 12px; background: rgba(16, 185, 129, 0.15); border-left: 3px solid #10B981; margin-bottom: 1rem;">
-                <span style="color: #10B981; font-weight: 600; font-size: 0.85rem;">🟢 Online (OpenRouter)</span><br>
+                <span style="color: #10B981; font-weight: 600; font-size: 0.85rem;">🟢 Online (""" + PROVIDERS[current_provider()]["label"] + """)</span><br>
                 <span style="color: #94A3B8; font-size: 0.75rem;">Model: """
             + str(st.session_state.selected_model)
             + """</span>
@@ -655,13 +657,6 @@ with main_tab:
     shoji_col, quick_col = st.columns([4.1, 1.35], gap="medium")
     quick_prompt = None
 
-    # Bắt tín hiệu click cuộn thư từ query parameters
-    if "quick_prompt" in st.query_params:
-        quick_prompt = st.query_params["quick_prompt"]
-        try:
-            del st.query_params["quick_prompt"]
-        except Exception:
-            pass
 
     with shoji_col:
         # 1. Container cho toàn bộ khu vực bên trái (Trà Thất + Chat)
@@ -716,7 +711,7 @@ with main_tab:
             # CHẠY AGENT ORCHESTRATOR
             response_text, tools_executed = run_agent_turn(
                 messages=st.session_state.chat_history,
-                api_key=st.session_state.api_key,
+                api_key=current_api_key(),
                 model=st.session_state.selected_model,
             )
             
@@ -761,77 +756,36 @@ with main_tab:
     st.markdown("### 🧭 Khám Phá Thị Trường Bất Động Sản (Scroll Down Discovery)")
     st.caption("Cuộn xuống dưới để khám phá 3 phân khúc K-Means, bộ lọc giá đô thị và các đặc trưng chi phối định giá.")
 
-    # 1. BỐN PHÂN KHÚC K-MEANS CHUYÊN SÂU
-    st.markdown("#### 🏛️ 4 Phân Khúc Thị Trường Tự Nhiên (K-Means Clustering)")
+    # 1. BỐN PHÂN KHÚC THỊ TRƯỜNG: ngưỡng giá, số liệu tính trực tiếp từ dữ liệu
+    st.markdown("#### 🏛️ 4 Phân Khúc Thị Trường (Theo Ngưỡng Giá)")
+    st.caption("Phân khúc xác định theo ngưỡng giá chung toàn quốc; K-Means (giá + diện tích) dùng để kiểm chứng cấu trúc thị trường.")
     seg_cols = st.columns(4)
+    seg_colors = ["#38BDF8", "#60A5FA", "#A78BFA", "#F472B6"]
 
-    with seg_cols[0]:
-        st.markdown(
-            """
-            <div class="feature-card">
-                <div class="card-tag">Phân khúc 01</div>
-                <div class="card-val" style="color: #38BDF8;">Bình Dân</div>
-                <div style="font-size: 1.25rem; font-weight: 600; color: #FFFFFF; margin-bottom: 0.5rem;">&lt; 2.0 Tỷ VNĐ</div>
-                <div class="card-desc">
-                    • <b>Diện tích TB:</b> ~60–80 m²<br>
-                    • <b>Quy mô:</b> 2–3 phòng ngủ, 1–2 tầng<br>
-                    • <b>Đặc điểm:</b> Nhà ở vừa túi tiền, nhà ở xã hội hoặc khu vực ngoại thành, tỉnh lân cận.
+    for idx, (col, seg, color) in enumerate(zip(seg_cols, segment_table(), seg_colors), start=1):
+        if seg["max"] == float("inf"):
+            price_txt = f"&gt; {seg['min']:.1f} Tỷ VNĐ"
+        elif seg["min"] == 0:
+            price_txt = f"&lt; {seg['max']:.1f} Tỷ VNĐ"
+        else:
+            price_txt = f"{seg['min']:.1f} – {seg['max']:.1f} Tỷ VNĐ"
+        with col:
+            st.markdown(
+                f"""
+                <div class="feature-card">
+                    <div class="card-tag">Phân khúc 0{idx}</div>
+                    <div class="card-val" style="color: {color};">{seg['name']}</div>
+                    <div style="font-size: 1.25rem; font-weight: 600; color: #FFFFFF; margin-bottom: 0.5rem;">{price_txt}</div>
+                    <div class="card-desc">
+                        • <b>Quy mô:</b> {seg['share_pct']}% số tin ({seg['count']:,} căn)<br>
+                        • <b>Diện tích đất TB:</b> ~{seg['mean_land_area']:.0f} m²<br>
+                        • <b>Phổ biến:</b> {seg['median_bedrooms']} phòng ngủ, {seg['median_floors']} tầng<br>
+                        • <b>Loại nhà nhiều nhất:</b> {seg['top_property_type']} ({seg['top_property_share_pct']:.0f}%)
+                    </div>
                 </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with seg_cols[1]:
-        st.markdown(
-            """
-            <div class="feature-card">
-                <div class="card-tag">Phân khúc 02</div>
-                <div class="card-val" style="color: #60A5FA;">Trung Cấp</div>
-                <div style="font-size: 1.25rem; font-weight: 600; color: #FFFFFF; margin-bottom: 0.5rem;">2.0 – 5.0 Tỷ VNĐ</div>
-                <div class="card-desc">
-                    • <b>Diện tích TB:</b> ~70–120 m²<br>
-                    • <b>Quy mô:</b> 3–4 phòng ngủ, 2–3 tầng<br>
-                    • <b>Đặc điểm:</b> Phân khúc phổ biến nhất (chiếm 45%), nhà phố gia đình tại đô thị loại 2 hoặc ven trung tâm.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with seg_cols[2]:
-        st.markdown(
-            """
-            <div class="feature-card">
-                <div class="card-tag">Phân khúc 03</div>
-                <div class="card-val" style="color: #A78BFA;">Cao Cấp</div>
-                <div style="font-size: 1.25rem; font-weight: 600; color: #FFFFFF; margin-bottom: 0.5rem;">5.0 – 15.0 Tỷ VNĐ</div>
-                <div class="card-desc">
-                    • <b>Diện tích TB:</b> ~90–180 m²<br>
-                    • <b>Quy mô:</b> 4–5 phòng ngủ, 3–4 tầng<br>
-                    • <b>Đặc điểm:</b> Nhà phố thương mại, chung cư hạng A tại các quận nội thành Hà Nội, TP.HCM, Đà Nẵng.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with seg_cols[3]:
-        st.markdown(
-            """
-            <div class="feature-card">
-                <div class="card-tag">Phân khúc 04</div>
-                <div class="card-val" style="color: #F472B6;">Hạng Sang</div>
-                <div style="font-size: 1.25rem; font-weight: 600; color: #FFFFFF; margin-bottom: 0.5rem;">&gt; 15.0 Tỷ VNĐ</div>
-                <div class="card-desc">
-                    • <b>Diện tích TB:</b> ~150–400 m²<br>
-                    • <b>Quy mô:</b> Biệt thự đơn lập/song lập<br>
-                    • <b>Đặc điểm:</b> Biệt thự sang trọng, vị trí vàng trung tâm hoặc đại đô thị sinh thái (Vinhomes, Ciputra, Sun Group).
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+                """,
+                unsafe_allow_html=True,
+            )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -869,15 +823,58 @@ with main_tab:
     _, _, _, _, _, feat_imp = get_trained_models()
     top_feats = feat_imp.head(6)
 
-    bar_df = pd.DataFrame({"Đặc trưng": top_feats.index, "Tỷ lệ tác động (%)": (top_feats.values * 100).round(1)})
-    st.bar_chart(bar_df.set_index("Đặc trưng"), color="#00F0FF")
+    # Nâng cấp lên Altair để tùy biến xoay chữ 45 độ và thêm số % trên đỉnh cột
+    import altair as alt
+    
+    # Chuẩn bị dữ liệu và tạo thêm cột "Nhãn hiển thị" có chứa ký tự %
+    bar_df = pd.DataFrame({
+        "Đặc trưng": [FEATURE_LABELS.get(n, n) for n in top_feats.index],
+        "Tỷ lệ tác động (%)": (top_feats.values * 100).round(1)
+    })
+    bar_df["Nhãn hiển thị"] = bar_df["Tỷ lệ tác động (%)"].astype(str) + "%"
+
+    # Cấu hình trục đồ thị (Xoay chữ 45 độ, đổi màu chữ thành trắng ngà)
+    base = alt.Chart(bar_df).encode(
+        x=alt.X("Đặc trưng:N", 
+                sort="-y", # Tự động sắp xếp cột cao nhất lên trước
+                axis=alt.Axis(labelAngle=-45, labelColor="#E2E8F0", labelFontSize=16, title=None)),
+        y=alt.Y("Tỷ lệ tác động (%):Q", 
+                axis=alt.Axis(labelColor="#E2E8F0", titleColor="#E2E8F0", gridColor="rgba(255,255,255,0.1)", title="Mức độ ảnh hưởng (%)"))
+    )
+
+    # 1. Vẽ các cột màu xanh Neon bo góc mềm mại
+    bars = base.mark_bar(color="#00F0FF", cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+
+    # 2. Vẽ các con số % hiển thị bay lơ lửng trên đỉnh cột
+    text = base.mark_text(
+        align='center',
+        baseline='bottom',
+        dy=-6,  # Đẩy chữ lên trên 6px so với đỉnh cột
+        color='#38BDF8', # Chữ xanh lơ sáng
+        fontSize=13,
+        fontWeight='bold'
+    ).encode(
+        text="Nhãn hiển thị:N"
+    )
+
+    # Gộp cột và chữ, ép nền trong suốt tuyệt đối
+    chart = (bars + text).properties(height=380, background="transparent")
+    
+    # Xuất ra giao diện (Tham số theme=None cực kỳ quan trọng để vô hiệu hóa nền trắng mặc định)
+    st.altair_chart(chart, width="stretch", theme=None)
+
+    report = get_model_report()
+    st.caption(
+        f"Độ chính xác trên tập kiểm tra: R² = {report['r2_log']:.3f} (trên log giá), sai số trung bình khoảng {report['mape_pct']:.0f}%. "
+        "Các cột one-hot (VD: Province_Hà Nội) đã được gộp về biến gốc."
+    )
 
 # ==============================================================================
-# TAB 3: TOÀN CẢNH THỊ TRƯỜNG & KHÁM PHÁ DỮ LIỆU
+# TAB 2: TOÀN CẢNH THỊ TRƯỜNG & KHÁM PHÁ DỮ LIỆU
 # ==============================================================================
 with explore_tab:
     st.markdown('<div class="hero-title" style="font-size: 2.2rem;">Toàn Cảnh Thị Trường Bất Động Sản</div>', unsafe_allow_html=True)
-    st.markdown('<div class="hero-subtitle">Bản đồ số liệu trực quan trích xuất từ 9,714 giao dịch bất động sản toàn quốc...</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero-subtitle">Bản đồ số liệu trực quan trích xuất từ bộ dữ liệu giao dịch bất động sản toàn quốc...</div>', unsafe_allow_html=True)
 
     df_exp = load_listing_data()
 
@@ -930,17 +927,17 @@ with explore_tab:
             with e1_col1:
                 img1_path = os.path.join(eda_dir, "01_missing_values.png")
                 if os.path.exists(img1_path):
-                    st.image(img1_path, caption="Biểu đồ 01: Ô Khuyết Trước & Sau Làm Sạch", use_container_width=True)
+                    st.image(img1_path, caption="Biểu đồ 01: Tỷ Lệ Ô Khuyết (Dữ Liệu Gốc)", width="stretch")
                     st.caption("🔍 **Nhận xét**: Loại bỏ triệt để 100% các ô thiếu, bảo toàn 9,714 dòng sạch.")
             with e1_col2:
                 img2_path = os.path.join(eda_dir, "02_price_histograms.png")
                 if os.path.exists(img2_path):
-                    st.image(img2_path, caption="Biểu đồ 02: Phân Phối Giá & Log Transform", use_container_width=True)
-                    st.caption("🔍 **Nhận xét**: Phân phối giá lệch phải mạnh; log1p đưa về chuẩn Gaussian cân đối.")
+                    st.image(img2_path, caption="Biểu đồ 02: Phân Phối Giá & Log Transform", width="stretch")
+                    st.caption("🔍 **Nhận xét**: Giá lệch phải mạnh (độ lệch ≈ 4,3); sau log(1 + giá) còn ≈ 0,65, gần đối xứng hơn nhiều.")
             with e1_col3:
                 img3_path = os.path.join(eda_dir, "03_correlation_with_log_price.png")
                 if os.path.exists(img3_path):
-                    st.image(img3_path, caption="Biểu đồ 03: Tương Quan Với Log Giá", use_container_width=True)
+                    st.image(img3_path, caption="Biểu đồ 03: Tương Quan Với Log Giá", width="stretch")
                     st.caption("🔍 **Nhận xét**: Diện tích đất và diện tích sàn là hai biến tương quan dương mạnh nhất.")
 
         with eda_tab2:
@@ -948,17 +945,17 @@ with explore_tab:
             with e2_col1:
                 img4_path = os.path.join(eda_dir, "04_land_area_vs_price.png")
                 if os.path.exists(img4_path):
-                    st.image(img4_path, caption="Biểu đồ 04: Diện Tích Đất vs Giá Bán", use_container_width=True)
-                    st.caption("🔍 **Nhận xét**: Xu hướng tăng giá tuyến tính theo diện tích; loại trừ outlier >500 tỷ.")
+                    st.image(img4_path, caption="Biểu đồ 04: Diện Tích Đất vs Giá Bán", width="stretch")
+                    st.caption("🔍 **Nhận xét**: Giá tăng theo diện tích (thang log); cùng diện tích, khu vực trung tâm có giá cao hơn rõ rệt.")
             with e2_col2:
                 img5_path = os.path.join(eda_dir, "05_price_by_property_type.png")
                 if os.path.exists(img5_path):
-                    st.image(img5_path, caption="Biểu đồ 05: Phân Phối Giá Theo Loại Hình", use_container_width=True)
-                    st.caption("🔍 **Nhận xét**: Biệt thự dẫn đầu biên độ giá; nhà phố chiếm thanh khoản áp đảo.")
+                    st.image(img5_path, caption="Biểu đồ 05: Phân Phối Giá Theo Loại Hình", width="stretch")
+                    st.caption("🔍 **Nhận xét**: Biệt thự có giá trung vị cao nhất (≈ 13,7 tỷ); nhà phố và chung cư chiếm phần lớn số tin.")
             with e2_col3:
                 img6_path = os.path.join(eda_dir, "06_price_by_location_type.png")
                 if os.path.exists(img6_path):
-                    st.image(img6_path, caption="Biểu đồ 06: Phân Phối Giá Theo Vị Trí", use_container_width=True)
+                    st.image(img6_path, caption="Biểu đồ 06: Phân Phối Giá Theo Vị Trí", width="stretch")
                     st.caption("🔍 **Nhận xét**: BĐS vùng trung tâm có đơn giá cao và độ phân hóa vượt trội.")
 
         with eda_tab3:
@@ -966,18 +963,18 @@ with explore_tab:
             with e3_col1:
                 img7_path = os.path.join(eda_dir, "07_distance_vs_price_per_m2.png")
                 if os.path.exists(img7_path):
-                    st.image(img7_path, caption="Biểu đồ 07: Cự Ly Trung Tâm vs Đơn Giá/m²", use_container_width=True)
-                    st.caption("🔍 **Nhận xét**: Định luật khoảng cách: đơn giá giảm theo hàm số mũ khi xa trung tâm.")
+                    st.image(img7_path, caption="Biểu đồ 07: Cự Ly Trung Tâm vs Đơn Giá/m²", width="stretch")
+                    st.caption("🔍 **Nhận xét**: Định luật khoảng cách: Đơn giá giảm nhanh trong những km đầu rồi đi ngang từ khoảng 20 km trở ra.")
             with e3_col2:
                 img8_path = os.path.join(eda_dir, "08_median_price_by_province.png")
                 if os.path.exists(img8_path):
-                    st.image(img8_path, caption="Biểu đồ 08: Giá Trung Vị Theo Tỉnh Thành", use_container_width=True)
+                    st.image(img8_path, caption="Biểu đồ 08: Giá Trung Vị Theo Tỉnh Thành", width="stretch")
                     st.caption("🔍 **Nhận xét**: TP.HCM, Hà Nội và Đà Nẵng định hình trục tam giác giá trị cao nhất.")
             with e3_col3:
                 img9_path = os.path.join(eda_dir, "09_correlation_heatmap.png")
                 if os.path.exists(img9_path):
-                    st.image(img9_path, caption="Biểu đồ 09: Ma Trận Nhiệt Tương Quan Đa Biến", use_container_width=True)
-                    st.caption("🔍 **Nhận xét**: Tổng hòa tương quan giữa 14 biến số địa hình và cấu trúc nhà.")
+                    st.image(img9_path, caption="Biểu đồ 09: Ma Trận Nhiệt Tương Quan Đa Biến", width="stretch")
+                    st.caption("🔍 **Nhận xét**: Tương quan giữa 13 biến (12 biến số và log giá).")
 
         with eda_tab_zoom:
             chart_options = {
@@ -988,7 +985,7 @@ with explore_tab:
                 "05_price_by_property_type.png": "05. Phân Phối Giá Theo Loại Hình Bất Động Sản",
                 "06_price_by_location_type.png": "06. Phân Phối Giá Theo Vị Trí Đô Thị",
                 "07_distance_vs_price_per_m2.png": "07. Khoảng Cách Đến Trung Tâm vs Đơn Giá/m²",
-                "08_median_price_by_province.png": "08. Giá Trung Vị 63 Tỉnh Thành Việt Nam",
+                "08_median_price_by_province.png": f"08. Giá Trung Vị Theo {df_exp['Province'].nunique()} Tỉnh/Thành",
                 "09_correlation_heatmap.png": "09. Ma Trận Nhiệt Tương Quan Đa Biến (Heatmap)",
             }
             selected_chart_file = st.selectbox(
@@ -998,12 +995,12 @@ with explore_tab:
             )
             zoom_path = os.path.join(eda_dir, selected_chart_file)
             if os.path.exists(zoom_path):
-                st.image(zoom_path, caption=chart_options[selected_chart_file], use_container_width=True)
+                st.image(zoom_path, caption=chart_options[selected_chart_file], width="stretch")
     else:
         st.info("Chưa tìm thấy thư mục eda_charts. Hãy chạy 'python vietnam_housing_data/02_eda.py' để khởi tạo.")
 
 # ==============================================================================
-# TAB 4: CÀI ĐẶT HỆ THỐNG & KẾT NỐI LLM (ẨN KHỎI GIAO DIỆN CHÍNH)
+# TAB 3: CÀI ĐẶT HỆ THỐNG & KẾT NỐI LLM (ẨN KHỎI GIAO DIỆN CHÍNH)
 # ==============================================================================
 with settings_tab:
     st.markdown('<div class="hero-title" style="font-size: 2.2rem;">Cài Đặt Hệ Thống & Kết Nối AI</div>', unsafe_allow_html=True)
@@ -1012,19 +1009,7 @@ with settings_tab:
     set_c1, set_c2 = st.columns([1.5, 1])
 
     with set_c1:
-        st.markdown("#### 🔑 Quản Trị Cổng LLM Gateway (OpenRouter)")
-        new_key = st.text_input(
-            "OpenRouter API Key",
-            value=st.session_state.api_key,
-            type="password",
-            placeholder="sk-or-v1-...",
-            help="Lấy khóa API miễn phí từ https://openrouter.ai/keys để sử dụng các mô hình LLM.",
-        )
-        if new_key != st.session_state.api_key:
-            st.session_state.api_key = new_key
-            st.success("Đã cập nhật API Key vào phiên làm việc hiện tại!")
-
-        # MANG GOOGLE GEMINI 2.0 LÊN MẶC ĐỊNH CHO TOOL CALLING HOÀN HẢO NHẤT
+        st.markdown("#### 🔑 Quản Trị Cổng LLM (Gemini / OpenRouter)")
         model_list = [
             "gemini-3.5-flash-lite",
             "meta-llama/llama-3.3-70b-instruct:free",
@@ -1039,6 +1024,20 @@ with settings_tab:
         )
         st.session_state.selected_model = chosen_m
 
+        prov_id = get_provider(chosen_m)
+        prov = PROVIDERS[prov_id]
+        new_key = st.text_input(
+            f"{prov['label']} API Key",
+            value=st.session_state.api_keys.get(prov_id, ""),
+            type="password",
+            placeholder="AIza..." if prov_id == "gemini" else "sk-or-v1-...",
+            help=f"Khóa này chỉ dùng cho các model chạy qua {prov['label']} (biến môi trường {prov['env']}).",
+            key=f"api_key_input_{prov_id}",
+        )
+        if new_key != st.session_state.api_keys.get(prov_id, ""):
+            st.session_state.api_keys[prov_id] = new_key
+            st.success("Đã cập nhật API Key vào phiên làm việc hiện tại!")
+
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### 🧹 Quản Trị Phiên Làm Việc (Session State)")
         if st.button("Làm Mới Lịch Sử Hội Thoại (Reset Chat)", width="stretch"):
@@ -1050,11 +1049,11 @@ with settings_tab:
 
     with set_c2:
         st.markdown("#### 📡 Trạng Thái Hệ Thống")
-        if st.session_state.api_key:
+        if current_api_key():
             st.markdown(
                 """
                 <div class="feature-card" style="border-left: 4px solid #10B981;">
-                    <div style="color: #10B981; font-weight: 700; margin-bottom: 0.3rem;">🟢 ONLINE - KẾT NỐI OPENROUTER</div>
+                    <div style="color: #10B981; font-weight: 700; margin-bottom: 0.3rem;">🟢 ONLINE - ĐÃ NHẬP API KEY</div>
                     <div class="card-desc">Sẵn sàng nhận diện Function Calling và sinh ngôn ngữ tự nhiên thông minh từ LLM.</div>
                 </div>
                 """,
@@ -1065,7 +1064,7 @@ with settings_tab:
                 """
                 <div class="feature-card" style="border-left: 4px solid #F59E0B;">
                     <div style="color: #F59E0B; font-weight: 700; margin-bottom: 0.3rem;">🟡 CHẾ ĐỘ PHÂN TÍCH NỘI BỘ (OFFLINE)</div>
-                    <div class="card-desc">Chưa nhập API Key. Hệ thống sử dụng bộ điều phối Heuristic nội bộ, vẫn gọi đầy đủ 5 công cụ Machine Learning mà không phát sinh lỗi.</div>
+                    <div class="card-desc">Chưa nhập API Key. Hệ thống sử dụng bộ điều phối Heuristic nội bộ, vẫn gọi đầy đủ 6 công cụ Machine Learning mà không phát sinh lỗi.</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1079,8 +1078,8 @@ with settings_tab:
                 <div style="color: #FFFFFF; font-weight: 600; margin-bottom: 0.3rem;">HouseAssist v2.0</div>
                 <div class="card-desc">
                     • Mẫu thiết kế: SkyAssist Single-Model Pattern<br>
-                    • Engine: Scikit-Learn + OpenRouter API<br>
-                    • Học viên: Nguyễn Minh Hoài
+                    • Engine: Scikit-Learn + LLM API (Gemini / OpenRouter)<br>
+                    • Học viên: Minh, Bách, Hoài
                 </div>
             </div>
             """,

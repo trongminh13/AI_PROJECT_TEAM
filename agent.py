@@ -8,6 +8,7 @@ Triển khai AI Agent Orchestrator kết nối OpenRouter API với Tool Calling
 """
 
 import os
+import re
 import json
 from dotenv import load_dotenv
 
@@ -15,9 +16,22 @@ load_dotenv()
 
 from openai import OpenAI
 from tools import TOOL_CATALOG
+from data import load_clean_data, find_province_in_text, match_province
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
+MAX_TOOL_ROUNDS = 4
+
+# Mỗi model chạy qua đúng nhà cung cấp của nó (tên model bắt đầu bằng "gemini" -> Google, còn lại -> OpenRouter)
+PROVIDERS = {
+    "gemini": {"label": "Google Gemini", "base_url": GEMINI_BASE_URL, "env": "GEMINI_API_KEY"},
+    "openrouter": {"label": "OpenRouter", "base_url": OPENROUTER_BASE_URL, "env": "OPENROUTER_API_KEY"},
+}
+
+def get_provider(model: str) -> str:
+    return "gemini" if str(model).lower().startswith("gemini") else "openrouter"
+
 
 SYSTEM_PROMPT = """Bạn là HouseAssist, trợ lý AI chuyên nghiệp phân tích và định giá bất động sản tại thị trường Việt Nam.
 Phạm vi chuyên môn: nhà ở tại các tỉnh/thành lớn như Hà Nội, TP. Hồ Chí Minh, Đà Nẵng, Bình Dương, Đồng Nai, Cần Thơ và toàn quốc.
@@ -27,12 +41,15 @@ Nhiệm vụ và Quy tắc ứng xử:
 2. Sử dụng các công cụ (Tools) được cung cấp khi người dùng yêu cầu:
    - Dự đoán giá nhà (Tỷ VNĐ) -> Dùng 'predict_house_price'
    - Thống kê thị trường (trung vị, min, max, số lượng giao dịch) -> Dùng 'get_market_statistics'
-   - Phân khúc căn nhà (Bình dân, Trung cấp, Cao cấp, Hạng sang) -> Dùng 'segment_house'
+   - Xác định phân khúc của một mức giá cụ thể -> Dùng 'segment_house'
+   - Giải thích/so sánh 4 phân khúc (Bình dân, Trung cấp, Cao cấp, Hạng sang) -> Dùng 'explain_market_segments'
    - Tìm kiếm căn nhà tương đồng trong bộ dữ liệu -> Dùng 'find_similar_houses'
    - Giải thích các yếu tố tác động đến giá trị (Feature Importance) -> Dùng 'explain_price_factors'
 3. Tuyệt đối không tự bịa đặt số liệu thống kê hoặc giá nhà khi chưa chạy công cụ.
 4. Tận dụng ngữ cảnh hội thoại trước đó (Follow-up questions) để điền các tham số còn thiếu.
-5. Trả lời bằng tiếng Việt chuyên nghiệp, định dạng số tiền rõ ràng (Tỷ VNĐ / triệu/m²), kèm nhận xét thực tế.
+5. Nếu công cụ báo không nhận diện được tỉnh/thành, hãy hỏi lại khách, KHÔNG tự đổi sang tỉnh khác.
+6. Khi báo giá dự đoán, nêu rõ đây là khoảng ước tính tham khảo (sai số trung bình khoảng 21%).
+7. Trả lời bằng tiếng Việt chuyên nghiệp, định dạng số tiền rõ ràng (Tỷ VNĐ / triệu/m²), kèm nhận xét thực tế.
 
 Đơn vị chuẩn:
 - Giá: Tỷ VNĐ (tỷ đồng). Ví dụ: 3.5 tỷ VNĐ.
@@ -47,10 +64,11 @@ Phân khúc thị trường Việt Nam:
 - Hạng sang: > 15 tỷ VNĐ
 
 NGUYÊN TẮC KHI GỢI Ý NHÀ TƯƠNG ĐỒNG:
-Khi khách hàng muốn tìm nhà, bạn BẮT BUỘC phải xác định được 3 thông tin: Tỉnh/Thành phố, Mức giá và Diện tích.
-Nếu khách hàng nhắn thiếu 1 trong 3 thông tin trên (đặc biệt là Tỉnh/Thành phố), tuyệt đối không tự ý bịa ra mà phải khéo léo hỏi lại khách. (Ví dụ: "Dạ anh/chị muốn tìm nhà 5 tỷ, 80m2 ở khu vực tỉnh thành nào ạ?")
-KHÔNG BAO GIỜ hỏi khách hàng về số lượng "phòng tắm/nhà vệ sinh".
-Nếu khách hàng không nhắc đến số "phòng ngủ", không cần hỏi lại. Hệ thống sẽ tự động tính toán số phòng ngủ tối ưu cho khách.
+Khi khách hàng muốn tìm nhà, bạn BẮT BUỘC phải xác định rõ 3 thông tin từ chính lời khách nói: Tỉnh/Thành phố, Mức giá và Diện tích.
+NẾU KHÁCH THIẾU BẤT KỲ THÔNG TIN NÀO TRONG 3 YÊU CẦU TRÊN (đặc biệt là Tỉnh/Thành phố hoặc Diện tích):
+- TUYỆT ĐỐI KHÔNG tự ý suy diễn, nội suy hoặc bịa ra con số (như tự gán 80m2).
+- KHÔNG ĐƯỢC PHÉP gọi công cụ 'find_similar_houses'.
+- Bắt buộc phải dừng lại và nhắn tin hỏi khách để thu thập đủ thông tin. (Ví dụ: "Dạ với ngân sách 5 tỷ tại Hà Nội, anh/chị muốn tìm nhà có diện tích khoảng bao nhiêu m² ạ?")
 """
 
 TOOL_SCHEMAS = [
@@ -140,8 +158,16 @@ TOOL_SCHEMAS = [
                         "description": "Tỉnh/Thành phố (ví dụ: Hà Nội, Đà Nẵng).",
                     },
                 },
-                "required": ["price_billion_vnd", "land_area_m2", "province"],
+                "required": ["price_billion_vnd"],
             },
+        },
+    },
+        {
+        "type": "function",
+        "function": {
+            "name": "explain_market_segments",
+            "description": "Mô tả 4 phân khúc thị trường (Bình dân, Trung cấp, Cao cấp, Hạng sang) bằng số liệu thật: tỷ trọng, giá trung vị, diện tích, loại nhà phổ biến.",
+            "parameters": {"type": "object", "properties": {}},
         },
     },
     {
@@ -213,13 +239,13 @@ def run_agent_turn(
     site_name: str = "HouseAssist",
 ) -> tuple[str, list]:
     """
-    Thực thi 1 lượt phản hồi của Agent với đầy đủ chu trình Tool Calling và Stateful Memory.
+    Thực thi 1 lượt phản hồi của Agent với đầy đủ chu trình Tool Calling (tối đa MAX_TOOL_ROUNDS vòng).
     Trả về: (câu trả lời cuối cùng, danh sách các tool calls đã diễn ra).
     """
+    provider = PROVIDERS[get_provider(model)]
     if not api_key:
-        api_key = os.getenv("GEMINI_API_KEY", "")
+        api_key = os.getenv(provider["env"], "")
 
-    # Chuẩn bị hội thoại bao gồm System Prompt nếu chưa có
     full_messages = []
     if not messages or messages[0].get("role") != "system":
         full_messages.append({"role": "system", "content": SYSTEM_PROMPT})
@@ -227,180 +253,178 @@ def run_agent_turn(
 
     tool_logs = []
 
-    # Nếu không có API Key, sử dụng bộ điều phối Heuristic Fallback
+    # Không có API key -> bộ điều phối offline
     if not api_key:
-        fallback_ans, fallback_tools = _run_heuristic_fallback(messages[-1]["content"])
-        return fallback_ans, fallback_tools
+        return _run_heuristic_fallback(messages[-1]["content"])
 
-    client = OpenAI(
-        base_url=GEMINI_BASE_URL,
-        api_key=api_key,
-        default_headers={
-            "HTTP-Referer": site_url,
-            "X-Title": site_name,
-        },
-    )
+    headers = {"HTTP-Referer": site_url, "X-Title": site_name} if provider is PROVIDERS["openrouter"] else None
+    client = OpenAI(base_url=provider["base_url"], api_key=api_key, default_headers=headers)
 
     try:
-        # Lượt 1: Gửi hội thoại và danh sách tool schema đến LLM
-        response = client.chat.completions.create(
-            model=model,
-            messages=full_messages,
-            tools=TOOL_SCHEMAS,
-            tool_choice="auto",
-            temperature=0.2,
-        )
-
-        response_message = response.choices[0].message
-
-        # Kiểm tra nếu LLM quyết định gọi công cụ
-        if response_message.tool_calls:
-            # Lưu lại yêu cầu gọi tool vào hội thoại
-            full_messages.append(response_message)
-
-            for tool_call in response_message.tool_calls:
-                fn_name = tool_call.function.name
-                try:
-                    fn_args = json.loads(tool_call.function.arguments)
-                except Exception:
-                    fn_args = {}
-
-                tool_result = execute_tool_call(fn_name, fn_args)
-                tool_logs.append({
-                    "tool_name": fn_name,
-                    "arguments": fn_args,
-                    "result": tool_result,
-                })
-
-                # Đưa kết quả thực thi tool trở lại hội thoại
-                full_messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "name": fn_name,
-                    "content": json.dumps(tool_result, ensure_ascii=False),
-                })
-
-            # Lượt 2: LLM tổng hợp kết quả công cụ thành câu trả lời tự nhiên
-            second_response = client.chat.completions.create(
+        for _ in range(MAX_TOOL_ROUNDS):
+            response = client.chat.completions.create(
                 model=model,
                 messages=full_messages,
-                temperature=0.3,
+                tools=TOOL_SCHEMAS,
+                tool_choice="auto",
+                temperature=0.2,
             )
-            final_content = second_response.choices[0].message.content
-            return final_content, tool_logs
-        else:
-            # LLM trả lời trực tiếp không cần tool
-            return response_message.content or "Tôi có thể hỗ trợ gì thêm về thị trường bất động sản Việt Nam?", tool_logs
+            msg = response.choices[0].message
+
+            if not msg.tool_calls:
+                return msg.content or "Tôi có thể hỗ trợ gì thêm về thị trường bất động sản Việt Nam?", tool_logs
+
+            # Ghi lại yêu cầu gọi công cụ (dạng dict chuẩn OpenAI để mọi nhà cung cấp đều nhận)
+            full_messages.append({
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [
+                    {"id": tc.id, "type": "function",
+                     "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                    for tc in msg.tool_calls
+                ],
+            })
+            for tc in msg.tool_calls:
+                try:
+                    fn_args = json.loads(tc.function.arguments or "{}")
+                except Exception:
+                    fn_args = {}
+                tool_result = execute_tool_call(tc.function.name, fn_args)
+                tool_logs.append({"tool_name": tc.function.name, "arguments": fn_args, "result": tool_result})
+                full_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "name": tc.function.name,
+                    "content": json.dumps(tool_result, ensure_ascii=False, default=str),
+                })
+
+        # Hết số vòng: yêu cầu mô hình tổng hợp, không cho gọi thêm công cụ
+        final = client.chat.completions.create(model=model, messages=full_messages, temperature=0.3)
+        return final.choices[0].message.content or "", tool_logs
 
     except Exception as e:
-        error_msg = str(e)
-        # Nếu gặp lỗi OpenRouter, chuyển sang fallback để đảm bảo ứng dụng không dừng
         fallback_ans, fallback_tools = _run_heuristic_fallback(messages[-1]["content"])
-        warning_note = f"\n\n*(Lưu ý: Đã kích hoạt chế độ phân tích ngoại tuyến do kết nối OpenRouter gặp lỗi: {error_msg[:100]})*"
-        return fallback_ans + warning_note, fallback_tools
+        note = f"\n\n*(Lưu ý: đã chuyển sang chế độ phân tích ngoại tuyến vì kết nối {provider['label']} gặp lỗi: {str(e)[:100]})*"
+        return fallback_ans + note, fallback_tools
 
+
+# ------------------------------------------------------------------------------
+# CHẾ ĐỘ OFFLINE: trích tham số từ câu hỏi, KHÔNG tự bịa giá trị còn thiếu
+# ------------------------------------------------------------------------------
+_NUM = r"(\d+(?:[.,]\d+)?)"
+_PROPERTY_KEYWORDS = {
+    "nhà phố": "Nhà phố", "chung cư": "Chung cư", "biệt thự": "Biệt thự",
+    "nhà cấp 4": "Nhà cấp 4", "liền kề": "Nhà liền kề",
+}
+
+def _to_float(s):
+    return float(str(s).replace(",", "."))
+
+def _extract_params(text: str, provinces: list) -> dict:
+    t = text.lower()
+    price = re.search(_NUM + r"\s*(?:tỷ|tỉ|ty)", t)
+    area = re.search(_NUM + r"\s*(?:m2|m²|mét vuông|m\b)", t)
+    beds = re.search(r"(\d+)\s*(?:pn|phòng ngủ)", t)
+    baths = re.search(r"(\d+)\s*(?:wc|phòng tắm)", t)
+    floors = re.search(r"(\d+)\s*tầng", t)
+    return {
+        "province": find_province_in_text(text, provinces),
+        "price": _to_float(price.group(1)) if price else None,
+        "area": _to_float(area.group(1)) if area else None,
+        "bedrooms": int(beds.group(1)) if beds else None,
+        "bathrooms": float(baths.group(1)) if baths else None,
+        "floors": float(floors.group(1)) if floors else None,
+        "property_type": next((v for k, v in _PROPERTY_KEYWORDS.items() if k in t), None),
+    }
+
+def _log(tool_logs, name, args, result):
+    tool_logs.append({"tool_name": name, "arguments": args, "result": result})
+    return result
 
 def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
-    """Bộ điều phối thông minh chạy cục bộ khi không có mạng hoặc chưa nhập OpenRouter key."""
-    text_lower = user_text.lower()
+    """Điều phối cục bộ khi không có API. Thiếu thông tin bắt buộc thì hỏi lại khách, không dùng giá trị mặc định."""
+    t = user_text.lower()
     tool_logs = []
+    provinces = load_clean_data()["Province"].unique().tolist()
+    p = _extract_params(user_text, provinces)
+    has = lambda words: any(w in t for w in words)
 
-    # 1. Thống kê thị trường
-    if any(k in text_lower for k in ["thống kê", "thị trường", "trung bình", "median", "bao nhiêu căn", "tổng số", "market"]):
-        province_found = None
-        for p in ["hà nội", "hồ chí minh", "đà nẵng", "bình dương", "đồng nai", "cần thơ", "hải phòng", "nha trang"]:
-            if p in text_lower:
-                # Chuyển về tên chuẩn
-                province_map = {
-                    "hà nội": "Hà Nội",
-                    "hồ chí minh": "TP. Hồ Chí Minh",
-                    "đà nẵng": "Đà Nẵng",
-                    "bình dương": "Bình Dương",
-                    "đồng nai": "Đồng Nai",
-                    "cần thơ": "Cần Thơ",
-                    "hải phòng": "Hải Phòng",
-                    "nha trang": "Khánh Hòa",
-                }
-                province_found = province_map.get(p)
-                break
-        res = TOOL_CATALOG["get_market_statistics"](province=province_found)
-        tool_logs.append({"tool_name": "get_market_statistics", "arguments": {"province": province_found}, "result": res})
-        ans = f"### Báo cáo Thống kê Thị trường ({res.get('scope', 'Việt Nam')}):\n"
-        ans += f"- **Tổng số giao dịch ghi nhận:** {res.get('total_listings', 0):,} căn\n"
-        ans += f"- **Giá trung vị (Median):** {res.get('median_price_formatted', 'N/A')}\n"
-        ans += f"- **Giá trung bình:** {res.get('mean_price_formatted', 'N/A')}\n"
-        ans += f"- **Đơn giá trung bình:** {res.get('avg_price_per_m2', 'N/A')}\n"
-        if "top_5_expensive_provinces" in res:
-            ans += "\n**Top 5 tỉnh/thành có giá trung vị cao nhất:**\n"
-            for k, v in res["top_5_expensive_provinces"].items():
-                ans += f"- {k}: {v}\n"
-        return ans, tool_logs
-
-    # 2. Yếu tố chi phối giá
-    if any(k in text_lower for k in ["yếu tố", "quan trọng", "ảnh hưởng", "feature importance", "tại sao giá", "tác động"]):
-        res = TOOL_CATALOG["explain_price_factors"]()
-        tool_logs.append({"tool_name": "explain_price_factors", "arguments": {}, "result": res})
-        ans = "### Các Yếu Tố Chi Phối Giá Nhà tại Việt Nam (Mô hình Random Forest):\n"
-        for insight in res.get("key_market_takeaways", []):
-            ans += f"- {insight}\n"
-        ans += "\n**Tỷ lệ quan trọng của Top 5 đặc trưng:**\n"
+    # 1. Yếu tố chi phối giá
+    if has(["yếu tố", "quan trọng", "ảnh hưởng", "feature importance", "tại sao giá", "tác động", "chi phối"]):
+        res = _log(tool_logs, "explain_price_factors", {}, TOOL_CATALOG["explain_price_factors"]())
+        ans = "### Các yếu tố chi phối giá nhà (Random Forest)\n"
+        ans += "".join(f"- {s}\n" for s in res.get("key_market_takeaways", []))
+        ans += "\n**Tỷ lệ quan trọng:**\n"
         for k, v in list(res.get("top_factors_importance_share", {}).items())[:5]:
-            ans += f"- `{k}`: {v*100:.1f}%\n"
+            ans += f"- {k}: {v*100:.1f}%\n"
         return ans, tool_logs
 
-    # 3. Phân khúc nhà
-    if any(k in text_lower for k in ["phân khúc", "bình dân", "trung cấp", "cao cấp", "hạng sang", "segment"]):
-        import re
-        nums = re.findall(r"[\d]+(?:[.,]\d+)?", text_lower.replace(",", "."))
-        price = 3.5
-        area = 80.0
-        float_nums = []
-        for n in nums:
-            try:
-                float_nums.append(float(n.replace(",", ".")))
-            except Exception:
-                pass
-        if float_nums:
-            # Heuristic: số lớn hơn 10 thường là diện tích, nhỏ hơn là giá (tỷ)
-            for n in float_nums:
-                if n > 10:
-                    area = n
-                else:
-                    price = n
-        res = TOOL_CATALOG["segment_house"](price_billion_vnd=price, land_area_m2=area, province="Hà Nội")
-        tool_logs.append({"tool_name": "segment_house", "arguments": {"price_billion_vnd": price, "land_area_m2": area}, "result": res})
-        ans = f"### Phân Khúc Bất Động Sản Việt Nam (K-Means Clustering):\n"
-        ans += f"- **Phân khúc:** {res['segment_name']}\n"
-        ans += f"- **Mức giá phân tích:** {res['price_analyzed']}\n"
-        ans += f"- **Diện tích phân tích:** {res['area_analyzed']}\n"
-        ans += f"- **Đặc điểm thị trường:** {res['market_profile']}\n"
+    # 2. Phân khúc: có giá cụ thể -> xác định phân khúc; không có -> giải thích 4 phân khúc
+    if has(["phân khúc", "segment"]):
+        if p["price"] is not None:
+            args = {"price_billion_vnd": p["price"], "province": p["province"], "land_area_m2": p["area"]}
+            res = _log(tool_logs, "segment_house", args, TOOL_CATALOG["segment_house"](**args))
+            ans = "### Phân khúc theo ngưỡng giá\n"
+            ans += f"- **Phân khúc:** {res['segment_name']}\n- **Mức giá:** {res['price_analyzed']}\n- {res['market_profile']}\n"
+            if res.get("local_position"):
+                ans += f"- {res['local_position']}\n"
+            return ans, tool_logs
+        res = _log(tool_logs, "explain_market_segments", {}, TOOL_CATALOG["explain_market_segments"]())
+        ans = f"### 4 phân khúc thị trường\n{res['definition']}\n"
+        for s in res["segments"]:
+            ans += (f"\n**{s['name']}**: {s['share_pct']}% số tin, giá trung vị {s['median_price']} tỷ, "
+                    f"đất TB {s['mean_land_area']:.0f} m², {s['median_bedrooms']} PN, {s['median_floors']} tầng, "
+                    f"phổ biến nhất: {s['top_property_type']} ({s['top_property_share_pct']:.0f}%).\n")
         return ans, tool_logs
 
-    # 4. Tìm kiếm nhà tương đồng
-    if any(k in text_lower for k in ["tìm nhà", "tìm kiếm", "căn nhà tương tự", "tương đồng", "find"]):
-        # Cung cấp đủ 3 tham số bắt buộc cho Fallback
-        res = TOOL_CATALOG["find_similar_houses"](province="Hà Nội", price_billion=5.0, land_area=80.0, limit=3)
-        tool_logs.append({"tool_name": "find_similar_houses", "arguments": {"province": "Hà Nội", "price_billion": 5.0, "land_area": 80.0}, "result": res})
-        ans = "### Các Căn Nhà Tương Đồng Tiêu Biểu Trong Bộ Dữ Liệu (Mô phỏng 5 Tỷ, 80m2 tại Hà Nội):\n"
-        
-        # Cập nhật key truy xuất khớp với cấu trúc return mới của tools.py
-        if res.get("status") == "success":
-            for idx, h in enumerate(res.get("recommendations", []), 1):
-                ans += f"{idx}. **{h.get('Loại nhà', 'Nhà đất')} tại {h.get('Địa chỉ')}**\n"
-                ans += f"   - Giá bán: `{h.get('Giá bán (Tỷ)')} Tỷ VNĐ`\n"
-                ans += f"   - Diện tích: `{h.get('Diện tích (m2)')} m²` | {h.get('Phòng ngủ')} PN\n"
-                ans += f"   - Độ tương đồng (sai số): {h.get('Độ sai lệch')}\n"
-        else:
-            ans += f"Không tìm thấy dữ liệu. Lỗi: {res.get('message', 'Không xác định')}\n"
+    # 3. Tìm nhà tương đồng: bắt buộc đủ tỉnh, giá, diện tích
+    if has(["tìm nhà", "tìm giúp", "tìm kiếm", "tìm căn", "tương đồng", "tương tự", "find"]):
+        missing = [n for n, k in [("Tỉnh/Thành phố", "province"), ("mức giá (tỷ)", "price"), ("diện tích (m²)", "area")] if p[k] is None]
+        if missing:
+            return f"Để tìm nhà phù hợp, anh/chị vui lòng cho biết thêm: **{', '.join(missing)}** ạ.", tool_logs
+        args = {"province": p["province"], "price_billion": p["price"], "land_area": p["area"], "limit": 3}
+        res = _log(tool_logs, "find_similar_houses", args, TOOL_CATALOG["find_similar_houses"](**args))
+        if res.get("status") != "success":
+            return f"Không tìm thấy dữ liệu: {res.get('message', 'Không xác định')}", tool_logs
+        ans = f"### Nhà tương đồng ({p['price']} tỷ, {p['area']:.0f} m², {p['province']})\n"
+        for i, h in enumerate(res["recommendations"], 1):
+            ans += (f"{i}. **{h['Loại nhà']}** tại {h['Địa chỉ']}: {h['Giá bán (Tỷ)']} tỷ, "
+                    f"{h['Diện tích (m2)']} m², {h['Phòng ngủ']} PN (độ lệch {h['Độ sai lệch']})\n")
         return ans, tool_logs
 
-    # 5. Mặc định: Dự đoán giá nhà
-    res = TOOL_CATALOG["predict_house_price"](land_area=80, province="Hà Nội", bedrooms=3, bathrooms=2.0, floors=3)
-    tool_logs.append({"tool_name": "predict_house_price", "arguments": {"land_area": 80, "province": "Hà Nội"}, "result": res})
-    ans = f"### Ước Tính Định Giá Bất Động Sản Việt Nam (Mô hình Random Forest):\n"
-    ans += f"- **Giá dự đoán điểm:** {res['estimated_price_formatted']}\n"
-    ans += f"- **Khoảng dao động tin cậy (88–112%):** {res['price_range_formatted']}\n"
-    ans += f"- **Đơn giá ước tính:** {res['price_per_m2_formatted']}\n"
-    ans += f"- **Thông số mặc định sử dụng:** Nhà phố 80 m², 3 phòng ngủ, 2 phòng tắm tại Hà Nội.\n"
-    ans += "\n*(Bạn có thể cung cấp chi tiết diện tích, số phòng và tỉnh/thành để tôi định giá chính xác hơn!)*"
-    return ans, tool_logs
+    # 4. Dự đoán giá: bắt buộc có diện tích và tỉnh/thành
+    if has(["dự đoán", "định giá", "ước tính", "predict"]):
+        missing = [n for n, k in [("Tỉnh/Thành phố", "province"), ("diện tích đất (m²)", "area")] if p[k] is None]
+        if missing:
+            return f"Để định giá, anh/chị vui lòng cho biết thêm: **{', '.join(missing)}** ạ.", tool_logs
+        args = {k: v for k, v in {
+            "land_area": p["area"], "province": p["province"], "bedrooms": p["bedrooms"],
+            "bathrooms": p["bathrooms"], "floors": p["floors"], "property_type": p["property_type"],
+        }.items() if v is not None}
+        res = _log(tool_logs, "predict_house_price", args, TOOL_CATALOG["predict_house_price"](**args))
+        if res.get("status") != "success":
+            return f"Không định giá được: {res.get('message', 'Không xác định')}", tool_logs
+        s = res["input_summary"]
+        ans = "### Ước tính giá (Random Forest)\n"
+        ans += f"- **Giá dự đoán:** {res['estimated_price_formatted']}\n"
+        ans += f"- **Khoảng 80%:** {res['price_range_formatted']}\n- **Đơn giá:** {res['price_per_m2_formatted']}\n"
+        ans += f"- **Căn nhà:** {s['property_type']} {s['land_area_m2']:.0f} m², {s['bedrooms']} PN, {s['bathrooms']:.0f} WC tại {s['province']}\n"
+        ans += f"\n*{res['note']}*"
+        return ans, tool_logs
+
+    # 5. Thống kê thị trường
+    if has(["thống kê", "trung vị", "trung bình", "median", "bao nhiêu căn", "tổng số", "thị trường", "market"]):
+        args = {"province": p["province"]}
+        res = _log(tool_logs, "get_market_statistics", args, TOOL_CATALOG["get_market_statistics"](**args))
+        ans = f"### Thống kê thị trường ({res.get('scope', 'Việt Nam')})\n"
+        ans += f"- **Số tin:** {res.get('total_listings', 0):,}\n- **Giá trung vị:** {res.get('median_price_formatted', 'N/A')}\n"
+        ans += f"- **Giá trung bình:** {res.get('mean_price_formatted', 'N/A')}\n- **Đơn giá TB:** {res.get('avg_price_per_m2', 'N/A')}\n"
+        for key, title in [("top_5_expensive_provinces", "Top 5 đắt nhất"), ("top_5_affordable_provinces", "Top 5 dễ tiếp cận nhất")]:
+            if key in res:
+                ans += f"\n**{title}:**\n" + "".join(f"- {k}: {v}\n" for k, v in res[key].items())
+        return ans, tool_logs
+
+    # 6. Không hiểu ý: gợi ý cách hỏi, không tự chạy công cụ
+    return ("Chế độ ngoại tuyến hiện hỗ trợ: **thống kê thị trường** (VD: \"thống kê Hà Nội\"), "
+            "**định giá** (VD: \"định giá nhà phố 80 m², 3 PN tại Đà Nẵng\"), **phân khúc**, **tìm nhà tương đồng** "
+            "và **yếu tố ảnh hưởng giá**. Anh/chị thử hỏi theo các mẫu này nhé."), tool_logs
