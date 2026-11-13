@@ -101,29 +101,6 @@ plt.ylabel("Thành phần chính 2 (PCA 2)")
 plt.legend()
 save("12_kmeans_pca_clusters.png")
 
-kmeans_final = KMeans(n_clusters=4, n_init=15, random_state=42)
-clusters = kmeans_final.fit_predict(Z_scaled)
-Z_pca = PCA(n_components=2).fit_transform(Z_scaled)
-
-# K-Means đánh số cụm NGẪU NHIÊN -> phải xếp hạng theo giá trung bình rồi mới gán nhãn
-mean_price = pd.Series(df["Price_Billion_VND"].values).groupby(clusters).mean().sort_values()
-rank_of = {cluster_id: rank for rank, cluster_id in enumerate(mean_price.index)}
-names = ['Bình dân', 'Trung cấp', 'Cao cấp', 'Hạng sang']
-colors = ['#3c9d6b', '#2f6db5', '#e0a030', '#d9534f']
-print("Cụm theo giá trung bình tăng dần:", {names[rank_of[c]]: round(p, 1) for c, p in mean_price.items()})
-
-plt.figure(figsize=(9, 6))
-for cluster_id in mean_price.index:
-    r = rank_of[cluster_id]
-    mask = clusters == cluster_id
-    plt.scatter(Z_pca[mask, 0], Z_pca[mask, 1], s=15, alpha=0.6, color=colors[r],
-                label=f"{names[r]} (n={mask.sum()}, giá TB {mean_price[cluster_id]:.1f} tỷ)")
-plt.title("Phân cụm thị trường BĐS bằng K-Means (theo giá + diện tích, trực quan hóa qua PCA)")
-plt.xlabel("Thành phần chính 1 (PCA 1)")
-plt.ylabel("Thành phần chính 2 (PCA 2)")
-plt.legend()
-save("12_kmeans_pca_clusters.png")
-
 # =====================================================================
 # PHẦN 3: K-NEAREST NEIGHBORS (SLIDE 11)
 # =====================================================================

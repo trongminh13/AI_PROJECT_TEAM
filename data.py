@@ -155,7 +155,7 @@ def build_regressor() -> Pipeline:
     return Pipeline([
         ("prep", preprocessor),
         ("rf", RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=4,
-                                     min_samples_split=10, max_features=0.8, random_state=42, n_jobs=-1)),
+             min_samples_split=10, max_features=0.8, random_state=42, n_jobs=-1)),
     ])
 
 def get_model_report() -> dict:
@@ -208,14 +208,11 @@ def get_trained_models():
     X_tr, X_te, y_tr, y_te = train_test_split(X, y_log, test_size=0.2, random_state=42)
     eval_model = build_regressor().fit(X_tr, y_tr)
     pred_te = eval_model.predict(X_te)
-    resid = y_te.values - pred_te
-    q10, q90 = np.quantile(resid, [0.1, 0.9])
     actual_te, pred_price_te = np.expm1(y_te.values), np.expm1(pred_te)
     _model_report.update({
         "r2_log": float(r2_score(y_te, pred_te)),
         "mae_log": float(mean_absolute_error(y_te, pred_te)),
         "mape_pct": float(np.mean(np.abs(pred_price_te - actual_te) / actual_te) * 100),
-        "q10": float(q10), "q90": float(q90),
         "n_train": int(len(X_tr)), "n_test": int(len(X_te)),
     })
 
