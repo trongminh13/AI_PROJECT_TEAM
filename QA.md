@@ -1,5 +1,23 @@
 # Báo Cáo Đảm Bảo Chất Lượng (QA & Test Verification)
 
+## [2026-11-13 19:42] Hòa trộn Git với origin/dev (Merge conflict resolution & Post-merge QA)
+- Phạm vi: `agent.py`, `app.py`, `data.py`, `tools.py`, `shoji_view.py`, `03_model_charts.py`, `tests/test_tools.py`, `.gitignore`, `README.md`
+- Môi trường: Linux x86_64, Python 3.14 (Virtualenv `.venv`), Streamlit 1.67.0, Scikit-learn 1.9.1, OpenAI SDK 3.50.0, nơi chạy: local
+- Lệnh đã chạy và kết quả:
+  - `git merge origin/dev` — Đạt — Giải quyết xung đột hòa trộn thành công trong agent.py, giữ nguyên đầy đủ thought_signature, Trí nhớ đa lượt Offline và Rule 8 cấm LaTeX từ origin/dev
+  - `.venv/bin/python -m unittest tests/test_tools.py` — Đạt — Ran 7 tests in 6.110s, OK (7/7 tests passed: predict, stats, segment, KNN similar, feature importance, invalid province, segment details)
+  - `.venv/bin/python -m py_compile agent.py app.py data.py tools.py scroll_view.py shoji_view.py 03_model_charts.py tests/test_tools.py vietnam_housing_data/*.py` — Đạt — Exit code 0, toàn bộ mã nguồn không có lỗi cú pháp
+  - Kiểm thử trực tiếp luồng Agent — Đạt — Offline Turn 2 kế thừa "Hà Nội" + "5 tỷ" gọi `find_similar_houses`, Online Gemini gọi `get_market_statistics` thành công 100% không còn lỗi 400 và tuân thủ không dùng ký hiệu LaTeX $
+  - `curl -s -I http://localhost:8501` — Đạt — HTTP/1.1 200 OK, Uvicorn/Streamlit phục vụ bình thường
+- Yêu cầu → test:
+  - Hòa trộn an toàn nhánh origin/dev mà không làm mất tính năng đã sửa → Kiểm tra git log & git status
+  - Xác nhận bộ kiểm thử Unit Test không bị hồi quy (regression) → `.venv/bin/python -m unittest tests/test_tools.py`
+  - Đảm bảo Google Gemini gọi tool trực tiếp trên web không còn lỗi 400 → Kiểm thử integration test
+- Lỗi hoặc cảnh báo mới: Không có
+- Chưa kiểm chứng: Không có
+- Kết luận: Đạt
+
+
 ## [2026-11-13 19:35] Khắc phục lỗi Gemini Error code 400, nâng cấp Trí nhớ đa lượt Offline, chuẩn hóa Unit Test 7/7 và cập nhật OpenRouter models
 - Phạm vi: `agent.py`, `app.py`, `tests/test_tools.py`, `.gitignore`, `README.md`
 - Môi trường: Linux x86_64, Python 3.14 (Virtualenv `.venv`), Streamlit 1.67.0, Scikit-learn 1.9.1, OpenAI SDK 3.50.0, nơi chạy: local
