@@ -100,6 +100,85 @@ def predict_house_price(
         if floor_area is None:
             floor_area = float(land_area) * floors
 
+        # ================================================================
+        # GUARDRAIL: KIỂM TRA DỮ LIỆU VÔ LÝ (LOGICAL VALIDATION)
+        # ================================================================
+        validation_errors = []
+
+        # 1. Tuổi nhà không được âm
+        if house_age < 0:
+            validation_errors.append(f"Tuổi nhà không hợp lệ: {house_age:.0f} năm (không thể âm)")
+
+        # 2. Số tầng phải >= 1
+        if floors < 1:
+            validation_errors.append(f"Số tầng không hợp lệ: {floors:.0f} (tối thiểu 1 tầng)")
+
+        # 3. Diện tích sàn phải >= diện tích đất (ít nhất 1 tầng)
+        if floor_area < land_area * 0.9:
+            validation_errors.append(
+                f"Diện tích sàn ({floor_area:.0f} m²) nhỏ hơn diện tích đất ({land_area:.0f} m²) - bất thường"
+            )
+
+        # 4. Diện tích sàn quá nhỏ so với số tầng (ví dụ 10 tầng nhưng chỉ 40m² sàn)
+        if floors > 1 and floor_area / floors < 15:
+            validation_errors.append(
+                f"Diện tích sàn trung bình mỗi tầng ({floor_area/floors:.0f} m²) quá nhỏ cho {floors:.0f} tầng"
+            )
+
+        # 5. Số phòng ngủ quá lớn so với diện tích sàn
+        if bedrooms > 0 and floor_area / bedrooms < 8:
+            validation_errors.append(
+                f"Diện tích sàn ({floor_area:.0f} m²) quá chật cho {bedrooms} phòng ngủ (< 8 m²/phòng)"
+            )
+
+        # 6. Khoảng cách đến trường/bệnh viện/chợ bất thường trong thành phố
+        # (Giả định: trong thành phố không nên > 30km, ngoại ô không > 50km)
+        max_urban_dist = 30.0
+        if distance_to_school > max_urban_dist:
+            validation_errors.append(
+                f"Khoảng cách đến trường ({distance_to_school:.1f} km) bất thường cho khu vực đô thị"
+            )
+        if distance_to_hospital > max_urban_dist:
+            validation_errors.append(
+                f"Khoảng cách đến bệnh viện ({distance_to_hospital:.1f} km) bất thường cho khu vực đô thị"
+            )
+        if distance_to_market > max_urban_dist:
+            validation_errors.append(
+                f"Khoảng cách đến chợ ({distance_to_market:.1f} km) bất thường cho khu vực đô thị"
+            )
+
+        # 7. Mặt tiền và đường rộng không được âm hoặc quá lớn so với đất
+        if frontage <= 0:
+            validation_errors.append(f"Mặt tiền không hợp lệ: {frontage:.1f} m (phải > 0)")
+        if frontage > land_area ** 0.5 * 3:
+            validation_errors.append(f"Mặt tiền ({frontage:.1f} m) quá lớn so với diện tích đất ({land_area:.0f} m²)")
+
+        if road_width <= 0:
+            validation_errors.append(f"Đường trước nhà không hợp lệ: {road_width:.1f} m (phải > 0)")
+        if road_width > 50:
+            validation_errors.append(f"Đường trước nhà ({road_width:.1f} m) bất thường lớn (> 50m)")
+
+        if validation_errors:
+            return {
+                "status": "error",
+                "message": "Dữ liệu đầu vào chứa giá trị vô lý, không thể định giá.",
+                "validation_errors": validation_errors,
+                "input_received": {
+                    "land_area": land_area,
+                    "floor_area": floor_area,
+                    "floors": floors,
+                    "bedrooms": bedrooms,
+                    "house_age": house_age,
+                    "frontage": frontage,
+                    "road_width": road_width,
+                    "distance_to_center": distance_to_center,
+                    "distance_to_school": distance_to_school,
+                    "distance_to_hospital": distance_to_hospital,
+                    "distance_to_market": distance_to_market,
+                    "province": matched_province,
+                },
+            }
+
         # 4. Tạo DataFrame đầu vào
         input_data = pd.DataFrame(
             [
