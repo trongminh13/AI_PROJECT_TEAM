@@ -41,7 +41,7 @@ Nhiệm vụ và Quy tắc ứng xử:
 2. Sử dụng các công cụ (Tools) được cung cấp khi người dùng yêu cầu:
    - Dự đoán giá nhà (Tỷ VNĐ) -> Dùng 'predict_house_price'
    - Thống kê thị trường (trung vị, min, max, số lượng giao dịch) -> Dùng 'get_market_statistics'
-   - Xác định phân khúc của một mức giá cụ thể -> Dùng 'segment_house'
+   - Xác định phân khúc của một mức giá cụ thể -> Dùng 'segment_house' (truyền cả diện tích đất nếu có để nhận thêm cụm K-Means)
    - Giải thích/so sánh 4 phân khúc (Bình dân, Trung cấp, Cao cấp, Hạng sang) -> Dùng 'explain_market_segments'
    - Tìm kiếm căn nhà tương đồng trong bộ dữ liệu -> Dùng 'find_similar_houses'
    - Giải thích các yếu tố tác động đến giá trị (Feature Importance) -> Dùng 'explain_price_factors'
@@ -142,7 +142,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "segment_house",
-            "description": "Xác định phân khúc căn nhà (Bình dân / Trung cấp / Cao cấp / Hạng sang) tại một tỉnh/thành cụ thể.",
+            "description": "Xác định phân khúc căn nhà (Bình dân / Trung cấp / Cao cấp / Hạng sang) theo ngưỡng giá tại một tỉnh/thành; nếu có diện tích đất thì kèm cụm K-Means (theo giá + diện tích) và so sánh hai cách phân loại.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -167,7 +167,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "explain_market_segments",
-            "description": "Mô tả 4 phân khúc thị trường (Bình dân, Trung cấp, Cao cấp, Hạng sang) bằng số liệu thật: tỷ trọng, giá trung vị, diện tích, loại nhà phổ biến.",
+            "description": "Mô tả 4 phân khúc thị trường (Bình dân, Trung cấp, Cao cấp, Hạng sang) bằng số liệu thật: tỷ trọng, giá trung vị, diện tích, loại nhà phổ biến, kèm hồ sơ 4 cụm K-Means.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -373,6 +373,10 @@ def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
             ans += f"- **Phân khúc:** {res['segment_name']}\n- **Mức giá:** {res['price_analyzed']}\n- {res['market_profile']}\n"
             if res.get("local_position"):
                 ans += f"- {res['local_position']}\n"
+            if res.get("kmeans_cluster"):
+                ans += f"\n### Góc nhìn K-Means (giá + diện tích)\n- **Cụm:** {res['kmeans_cluster']}\n- {res['kmeans_profile']}\n- {res['kmeans_comparison']}\n"
+            elif res.get("kmeans_note"):
+                ans += f"\n*{res['kmeans_note']}*\n"
             return ans, tool_logs
         res = _log(tool_logs, "explain_market_segments", {}, TOOL_CATALOG["explain_market_segments"]())
         ans = f"### 4 phân khúc thị trường\n{res['definition']}\n"
@@ -380,6 +384,9 @@ def _run_heuristic_fallback(user_text: str) -> tuple[str, list]:
             ans += (f"\n**{s['name']}**: {s['share_pct']}% số tin, giá trung vị {s['median_price']} tỷ, "
                     f"đất TB {s['mean_land_area']:.0f} m², {s['median_bedrooms']} PN, {s['median_floors']} tầng, "
                     f"phổ biến nhất: {s['top_property_type']} ({s['top_property_share_pct']:.0f}%).\n")
+        ans += f"\n### 4 cụm K-Means (giá + diện tích)\n{res['kmeans_note']}\n"
+        for c in res["kmeans_clusters"]:
+            ans += f"\n**{c['name']}**: {c['share_pct']}% số tin, giá trung vị {c['median_price']} tỷ, đất trung vị {c['median_land_area']:.0f} m².\n"
         return ans, tool_logs
 
     # 3. Tìm nhà tương đồng: bắt buộc đủ tỉnh, giá, diện tích

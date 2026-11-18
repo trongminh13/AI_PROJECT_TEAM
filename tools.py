@@ -1,11 +1,12 @@
 """
 Module: tools.py
-Triển khai 5 công cụ nghiệp vụ bất động sản chuẩn hóa cho thị trường Việt Nam:
+Triển khai 6 công cụ nghiệp vụ bất động sản chuẩn hóa cho thị trường Việt Nam:
 1. predict_house_price: Dự đoán giá bán bằng mô hình Random Forest Regressor (Tỷ VNĐ)
 2. get_market_statistics: Thống kê số liệu thị trường theo tỉnh/thành hoặc toàn quốc
-3. segment_house: Phân khúc nhà (Bình dân, Trung cấp, Cao cấp, Hạng sang) bằng K-Means
-4. find_similar_houses: Tìm kiếm các căn nhà thực tế tương đồng nhất trong kho dữ liệu
-5. explain_price_factors: Cung cấp mức độ quan trọng (Feature Importance) và giải thích yếu tố định giá
+3. segment_house: Phân khúc theo ngưỡng giá, kèm cụm K-Means (giá + diện tích) để đối chiếu
+4. explain_market_segments: Mô tả 4 phân khúc theo ngưỡng giá và hồ sơ 4 cụm K-Means
+5. find_similar_houses: Tìm kiếm các căn nhà thực tế tương đồng nhất (KNN, lọc theo tỉnh)
+6. explain_price_factors: Cung cấp mức độ quan trọng (Feature Importance) và giải thích yếu tố định giá
 """
 
 import numpy as np
@@ -13,7 +14,7 @@ import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 from data import (
     load_clean_data, load_listing_data, get_trained_models, get_model_report,
-    match_province, classify_segment, segment_table, SEGMENT_BINS, FEATURE_LABELS,
+    match_province, classify_segment, segment_table, FEATURE_LABELS, SEGMENT_BINS,
 )
 
 
@@ -42,7 +43,7 @@ def predict_house_price(
         reg_model, _, _, _, _, _ = get_trained_models()
         df_clean = load_clean_data()
 
-        # 1. Chuẩn hóa tên tỉnh/thành (KHÔNG âm thầm đổi sang Hà Nội nữa)
+        # 1. Chuẩn hóa tên tỉnh/thành
         all_provinces = df_clean["Province"].unique().tolist()
         matched_province = match_province(province, all_provinces)
         if not matched_province:
@@ -126,9 +127,8 @@ def predict_house_price(
         pred_log = reg_model.predict(input_data)[0]
         estimated_price = float(np.expm1(pred_log))
 
-        # Khoảng giá 80%: phân vị 10-90 của sai số trên tập kiểm tra (thay cho ±12% cố định)
         report = get_model_report()
-        # Áp dụng biên độ ±10% đơn giản dễ hiểu
+        # Khoảng giá: biên độ ±10% cố định quanh giá dự đoán (đơn giản, dễ giải thích)
         lower_bound = estimated_price * 0.90
         upper_bound = estimated_price * 1.10
         price_per_m2 = (estimated_price * 1000) / float(land_area) if land_area > 0 else 0.0  # Triệu/m²
@@ -155,7 +155,7 @@ def predict_house_price(
             },
             "warnings": warnings_list,
             "note": (
-                f"Ước tính bằng Random Forest. Khoảng giá bao phủ khoảng 80% trường hợp trên tập kiểm tra; "
+                f"Ước tính bằng Random Forest, khoảng giá là biên độ ±10% quanh giá dự đoán; "
                 f"sai số trung bình khoảng {report['mape_pct']:.0f}%, nên chỉ dùng để tham khảo."
             ),
         }
@@ -239,10 +239,47 @@ def get_market_statistics(province: str = None) -> dict:
         return {"status": "error", "message": f"Lỗi thống kê: {str(e)}"}
 
 
+# ---------------------------------------------------------------------------
+# K-MEANS TRONG ỨNG DỤNG: dùng mô hình đã huấn luyện/cache trong data.py
+# ---------------------------------------------------------------------------
+_KM_COLS = ["Price_Billion_VND", "Land_Area"]
+_cluster_cache = {}
+
+
+def _kmeans_cluster_rank(price: float, area: float) -> int:
+    """Trả về thứ hạng cụm K-Means (0 = Bình dân ... 3 = Hạng sang) của một căn nhà (giá, diện tích đất)."""
+    _, (kmeans, mapping), km_scaler, _, _, _ = get_trained_models()
+    z = km_scaler.transform(pd.DataFrame(np.log1p([[price, area]]), columns=_KM_COLS))
+    return int(mapping[int(kmeans.predict(z)[0])])
+
+
+def _kmeans_profiles() -> list:
+    """Hồ sơ 4 cụm K-Means (đã xếp theo giá trung bình tăng dần), tính một lần rồi cache."""
+    if "profiles" in _cluster_cache:
+        return _cluster_cache["profiles"]
+    df = load_clean_data()
+    _, (kmeans, mapping), km_scaler, _, _, _ = get_trained_models()
+    z = km_scaler.transform(np.log1p(df[_KM_COLS]))
+    ranks = np.array([mapping[int(c)] for c in kmeans.predict(z)])
+    profiles = []
+    for r, (name, _, _) in enumerate(SEGMENT_BINS):
+        part = df[ranks == r]
+        profiles.append({
+            "name": name,
+            "count": int(len(part)),
+            "share_pct": round(len(part) / len(df) * 100, 1),
+            "median_price": round(float(part["Price_Billion_VND"].median()), 2),
+            "median_land_area": round(float(part["Land_Area"].median()), 0),
+        })
+    _cluster_cache["profiles"] = profiles
+    return profiles
+
+
 def segment_house(price_billion_vnd: float, province: str = None, land_area_m2: float = None) -> dict:
     """
     Xác định phân khúc căn nhà theo NGƯỠNG GIÁ chung toàn quốc (dưới 2, 2-5, 5-15, trên 15 tỷ),
     kèm vị trí phần trăm của giá trong tỉnh/thành (nếu có) để so sánh với thị trường địa phương.
+    Nếu có diện tích đất, trả thêm CỤM K-MEANS (theo giá + diện tích) và so sánh hai cách phân loại.
     """
     try:
         df = load_clean_data()
@@ -270,6 +307,34 @@ def segment_house(price_billion_vnd: float, province: str = None, land_area_m2: 
             result["local_position"] = (
                 f"Mức giá {price:.2f} tỷ cao hơn {pct:.0f}% số tin tại {matched} (trung vị địa phương {prices.median():.2f} tỷ)."
             )
+
+        # --- Góc nhìn K-Means: phân cụm theo cả giá lẫn diện tích ---
+        if land_area_m2:
+            area = float(land_area_m2)
+            rank = _kmeans_cluster_rank(price, area)
+            prof = _kmeans_profiles()[rank]
+            seg_rank = [s[0] for s in SEGMENT_BINS].index(segment)
+            result["kmeans_cluster"] = prof["name"]
+            result["kmeans_profile"] = (
+                f"Cụm K-Means {prof['name']} gồm {prof['share_pct']}% số tin; giá trung vị {prof['median_price']} tỷ, "
+                f"diện tích đất trung vị {prof['median_land_area']:.0f} m²."
+            )
+            if rank == seg_rank:
+                result["kmeans_comparison"] = (
+                    f"Hai cách phân loại trùng khớp: theo ngưỡng giá và theo K-Means (giá + diện tích) đều là {segment}."
+                )
+            elif rank > seg_rank:
+                result["kmeans_comparison"] = (
+                    f"Theo giá thuộc {segment}, nhưng diện tích {area:.0f} m² lớn hơn mức thường gặp ở mức giá này "
+                    f"nên K-Means xếp vào cụm {prof['name']}: về quy mô giống nhóm cao hơn."
+                )
+            else:
+                result["kmeans_comparison"] = (
+                    f"Theo giá thuộc {segment}, nhưng diện tích {area:.0f} m² nhỏ hơn mức thường gặp ở mức giá này "
+                    f"nên K-Means xếp vào cụm {prof['name']}: giá khá cao so với diện tích."
+                )
+        else:
+            result["kmeans_note"] = "Cung cấp thêm diện tích đất để biết căn nhà thuộc cụm K-Means nào."
         return result
     except Exception as e:
         return {"status": "error", "message": f"Lỗi phân khúc: {str(e)}"}
@@ -282,6 +347,8 @@ def explain_market_segments() -> dict:
             "status": "success",
             "definition": "Phân khúc theo ngưỡng giá: Bình dân < 2 tỷ; Trung cấp 2-5 tỷ; Cao cấp 5-15 tỷ; Hạng sang > 15 tỷ.",
             "segments": segment_table(),
+            "kmeans_note": "K-Means phân cụm theo log giá và log diện tích đất; cụm được xếp theo giá trung bình tăng dần.",
+            "kmeans_clusters": _kmeans_profiles(),
         }
     except Exception as e:
         return {"status": "error", "message": f"Lỗi mô tả phân khúc: {str(e)}"}
